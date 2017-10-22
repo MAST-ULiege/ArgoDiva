@@ -8,6 +8,7 @@ remark : "Only works for ARGO buoys with CHLA, CDOM and DOXY sensors with their 
   # SECTION ONE : EXTRACTING BASIC DATA ----------------------------------------------  
 
 library(ncdf4)
+library(matrixStats)#Fast statistical analysis for matrices
 #More complex libraries for plotting data
 # library(ggplot2)
 # library(ggvis)
@@ -15,7 +16,7 @@ library(ncdf4)
 
 #Setting the working directory
 setwd("~/R/TFE/tfe")
-filename <- "6901866_Mprof.nc"
+filename <- "6901865_Mprof.nc"
 
 #Opening the file in a open-only mode
 ncfile <- nc_open(filename, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
@@ -271,3 +272,34 @@ points(y = -pres, x = f[[5]], col = "black", cex = 0.25)
 legend("bottomright",legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red","black"))
 #legend("topright", inset = c(-0.3,0), legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red","black"))
 dev.off()
+
+# SECTION FOUR : EXTRACTION OF CHLOROPHYLL-A FEATURES -----------------------------------------------------
+
+# #valuemax <- apply(chla,2,max, na.rm = TRUE)
+# valuemax[valuemax == -Inf] <- 0
+# #integratedvalue <- apply(chla,2,sum,na.rm = TRUE)
+
+#Clean chla matrix (all NA columns removed)
+index <- which(is.na(chla[1,]) == FALSE)
+for (i in 1:length(index)){
+  if(i == 1){
+    nchla <- chla[,index[i]]
+  }
+  else{
+    tmp <- chla[,index[i]]
+    nchla <- cbind(nchla,tmp)
+  }
+}
+colnames(nchla) <- c(1:ncol(nchla)) 
+ 
+valuemax <- colMaxs(nchla, na.rm = TRUE)
+totvalue <- colSums2(nchla, na.rm = TRUE)
+maxchla <- seq(0,0,length.out = ncol(nchla))
+maxdepth <- seq (0,0,length.out = ncol(nchla))
+for (i in 1 : ncol(nchla)){
+  maxchla[i] <- which.max(nchla[,i])
+  maxdepth[i] <- pres[maxchla[i],index[i]]
+}
+
+datachla <- data.frame(valuemax,totvalue,maxdepth)
+colnames(datachla) <- c("Max CHLA","Total CHLA","Max Depth")
