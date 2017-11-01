@@ -67,12 +67,12 @@ subCHLA_ADJUSTED<-subset(CHLAL_ADJUSTED,select=c("depth","juld","value","qc"))
 colnames(subCHLA_ADJUSTED)[which(colnames(subCHLA_ADJUSTED)=="value")]<-"CHLA_ADJUSTED"
 
 CHLAF <- ddply(subCHLA,~juld,summarize, qc = qc[which.max(CHLA)], 
-               depthofmaxCHLA = depth[which.max(CHLA)],
+               depthmax = depth[which.max(CHLA)],
                maxvalue = CHLA[which.max(CHLA)],
                integration = sum(CHLA))
 
 CHLAF_ADJUSTED <- ddply(subCHLA_ADJUSTED,~juld,summarize, qc = qc[which.max(CHLA_ADJUSTED)], 
-                        depthofmaxCHLA = depth[which.max(CHLA_ADJUSTED)],
+                        depthmax = depth[which.max(CHLA_ADJUSTED)],
                         maxvalue = CHLA_ADJUSTED[which.max(CHLA_ADJUSTED)],
                         integration = sum(CHLA_ADJUSTED))
 
@@ -83,7 +83,7 @@ CHLAF_ADJUSTED <- ddply(subCHLA_ADJUSTED,~juld,summarize, qc = qc[which.max(CHLA
 #'ADJUSTED' values mais si ça n'était pas le cas, on aurait dû mettre une condition dès le début...
 
 #Construction du data frame final a lieu ici
-data.frame(depthmax = CHLAF_ADJUSTED$depthofmaxCHLA,
+data.frame(depthmax = CHLAF_ADJUSTED$depthmax,
            qc      = CHLAF_ADJUSTED$qc,
            maxvalue = CHLAF_ADJUSTED$maxvalue,
            integratedvalue = CHLAF_ADJUSTED$integration)
@@ -116,8 +116,8 @@ trajdf <- ldply(as.list(filename), function(file){
   id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
   lat <- ncvar_get(ncfile, "LATITUDE")
   long <- ncvar_get(ncfile, "LONGITUDE")
+  nc_close(ncfile)
   data.frame(Latitude = lat, Longitude = long, Platform = id)
-    
 })
 
 #Trajectories
@@ -132,5 +132,48 @@ bs <- c(26.5,40,43,46)
 myMap <-get_map(location=bs, source="google", maptype="satellite", crop=FALSE)
 ggmap(myMap) + geom_point(aes(x=Longitude, y=Latitude, colour = Platform), data = trajdf, alpha = .2)
 
+---------------------------------------------------------------------------------
+#SECTION SIX : Data from WOD ----------------------------------------------------
+---------------------------------------------------------------------------------
+#Measured by CTD and OSD... -> En attendant de résoudre le problème de la base
+#de données EMODnet (807 datasets dispos..)
 
+wd <- getwd()
+setwd(paste0(wd,"/Merged"))
+#Creation of a list of files
+tmp <- list.files(pattern="*.nc")
+#tmp <- c("wod_011527263O.nc","wod_011529213O.nc")
+datadf <- ldply(as.list(tmp),function(file){
+  
+  ncfile <- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  datachla <- ncvar_get(ncfile,"Chlorophyll")
+  datadepth <- ncvar_get(ncfile,"Pressure")
+  datalat <- ncvar_get(ncfile,"lat")
+  datalong <- ncvar_get(ncfile,"lon")
+  datadate <- ncvar_get(ncfile,"date")
+  nc_close(ncfile)#sinon ça buggera aux alentours du 1000ème fichier..
+  data.frame(Chlorophyll = datachla, Depth = datadepth, Latitude = datalat, Longitude = datalong, Date = datadate)
+  
+})
 
+#Final data frame (dff)
+datadff <- ddply(datadf,~Date,summarize, 
+               depthmax = Depth[which.max(Chlorophyll)],
+               maxvalue = Chlorophyll[which.max(Chlorophyll)],
+               integration = sum(Chlorophyll), Latitude = Latitude[which.max(Latitude)],
+               Longitude = Longitude[which.max(Longitude)])
+
+#Data distribution
+ggplot(datadff, aes(depthmax)) + geom_density()#note qu'il a bcp de zéro car il semble y avoir pas mal de sampling en surface... (intérêt?)
+
+#Spatial Coverage
+myMap <-get_map(location=bs, source="google", maptype="satellite", crop=FALSE)
+ggmap(myMap) + geom_point(aes(x=Longitude, y=Latitude), data = datadff, alpha = .2)
+
+#SECTION SEVEN : MERGING ARGO AND 'DISCRETE' SAMPLINGS -------------------------------------------
+argodepthmax <- melt(argodf$depthmax)#one column data frame
+discretedepthmax <- melt(datadff$depthmax)
+merged <- rbind(argodepthmax, discretedepthmax)
+colnames(merged)[which(colnames(merged)=="value")]<-"depthmax"
+
+ggplot(merged, aes(depthmax)) + geom_density()
