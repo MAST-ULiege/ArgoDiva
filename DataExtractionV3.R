@@ -106,5 +106,31 @@ ggplot(argodf, aes(x = depthmax, y = maxvalue)) + geom_point() + xlim(c(2, 80))
 
 plot(density(x = argodf$depthmax))
 
+ggplot(argodf, aes(depthmax)) + geom_density()
+
 #SECTION FIVE : SPATIAL COVERAGE OF ARGO PROFILERS ----------------------------------
+#creation of a data frame for ARGO's trajectory
+trajdf <- ldply(as.list(filename), function(file){
+  
+  ncfile <- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  lat <- ncvar_get(ncfile, "LATITUDE")
+  long <- ncvar_get(ncfile, "LONGITUDE")
+  data.frame(Latitude = lat, Longitude = long, Platform = id)
+    
+})
+
+#Trajectories
+#ggplot(trajdf,aes(x=Longitude,y=Latitude,color=Platform)) + geom_point() 
+
+#Map libraries
+library(ggmap)
+library(ggalt)
+
+#Black Sea coordinates
+bs <- c(26.5,40,43,46)
+myMap <-get_map(location=bs, source="google", maptype="satellite", crop=FALSE)
+ggmap(myMap) + geom_point(aes(x=Longitude, y=Latitude, colour = Platform), data = trajdf, alpha = .2)
+
+
 
