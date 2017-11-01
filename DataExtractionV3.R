@@ -105,3 +105,6 @@ ggplot(argodf, aes(x = depthmax, y = maxvalue)) + geom_point() + xlim(c(2, 80))
 # ggplot(subset(argodf,qc==3),aes(x=depthmax, y = maxvalue))+ geom_point()
 
 plot(density(x = argodf$depthmax))
+
+#SECTION FIVE : SPATIAL COVERAGE OF ARGO PROFILERS ----------------------------------
+

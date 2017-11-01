@@ -1,14 +1,13 @@
 ---
-  title: "Data extraction from NetCDF files"
+title: "Data extraction from NetCDF files"
 author: "Florian Ricour"
-date: "October 19, 2017"
+date: "October 18, 2017"
 remark : "Only works for ARGO buoys with CHLA, CDOM and DOXY sensors with their respective name"
 ---
-  
-  # SECTION ONE : EXTRACTING BASIC DATA ----------------------------------------------  
 
+# SECTION ONE : EXTRACTING BASIC DATA ----------------------------------------------  
+  
 library(ncdf4)
-library(matrixStats)#Fast statistical analysis for matrices
 #More complex libraries for plotting data
 # library(ggplot2)
 # library(ggvis)
@@ -21,7 +20,10 @@ filename <- "6901866_Mprof.nc"
 #Opening the file in a open-only mode
 ncfile <- nc_open(filename, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
 
+#print(ncfile)#equivalent de ncdisp dans Matlab
+
 #Dimensions
+#N_PROF <- ncol(ncvar_get(ncfile,"STATION_PARAMETERS"))
 N_PROF <- ncol(ncvar_get(ncfile,"PRES"))
 N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
 
@@ -29,10 +31,12 @@ N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
 #PRESSURE
 pres <- ncvar_get(ncfile,"PRES")
 pres_adjusted <- ncvar_get(ncfile,"PRES_ADJUSTED")
+#pres_FillValue <- ncatt_get(ncfile,"PRES_ADJUSTED_ERROR",'_FillValue')#Pris en compte dans le suppress_dimvals
 
 #CHLOROPHYLL-A
 chla <- ncvar_get(ncfile,"CHLA")
 chla_adjusted <- ncvar_get(ncfile,"CHLA_ADJUSTED")
+#chla_FillValue <- ncatt_get(ncfile,"CHLA_ADJUSTED_ERROR",'_FillValue')
 
 #TEMPERATURE
 temp <- ncvar_get(ncfile,"TEMP")
@@ -49,6 +53,21 @@ cdom_adjusted <- ncvar_get(ncfile,"CDOM_ADJUSTED")
 #DISSOLVED OXYGEN
 doxy <- ncvar_get(ncfile,"DOXY")
 doxy_adjusted <- ncvar_get(ncfile,"DOXY_ADJUSTED")
+
+# #Chlorophyll-A plot
+# plot (x = chla, y = -pres, main = "Raw Values", xlab = "Chlorophyll-A (mg/m3)", ylab = "Pressure (decibar)", cex = 0.25)
+# 
+# #Temperature plot
+# plot (x = temp, y = -pres, main = "Raw Values", xlab = "Temperature (°C)", ylab = "Pressure(decibar)", cex = 0.25)
+# 
+# #Salinity plot
+# plot (x = psal, y = -pres, main = "Raw Values", xlab = "Salinity", ylab = "Pressure(decibar)", cex = 0.25)
+# 
+# #CDOM plot
+# plot (x = cdom, y = -pres, main = "Raw Values", xlab = "CDOM (ppb)", ylab = "Pressure(decibar)", cex = 0.25)
+# 
+# #DOXY plot
+# plot (x = doxy, y = -pres, main = "Raw Values", xlab = "Dissolved oxygen (micromole/kg)", ylab = "Pressure(decibar)", cex = 0.25)
 
 # SECTION TWO : EXTRACTING QC -----------------------------------------------------  
 
@@ -140,22 +159,67 @@ colnames(ndoxy_qc) <- c(1:N_PROF)
 #set a new working directory to get plots according to the given filename
 wd <- getwd()
 nwd <- strsplit(filename,".nc")
-wd <- paste(wd,"/",nwd, sep ="")
-dir.create(wd)
-setwd(wd)
+nwd <- paste(wd,"/",nwd, sep ="")
+dir.create(nwd)
+setwd(nwd)
 
 #NOT ajusted QC go from 0 to 4
 
 #CHLOROPHYLL-A
+nchla0 <- (nchla_qc == 0 & chla) * chla#chla data at QC = 0
+nchla0[nchla0 == 0] <- NA 
+
+nchla1 <- (nchla_qc == 1 & chla) * chla#on devrait adapter ça à une boucle
+nchla1[nchla1 == 0] <- NA 
+
+nchla2 <- (nchla_qc == 2 & chla) * chla
+nchla2[nchla2 == 0] <- NA 
+
+nchla3 <- (nchla_qc == 3 & chla) * chla
+nchla3[nchla3 == 0] <- NA 
+
+nchla4 <- (nchla_qc == 4 & chla) * chla
+nchla4[nchla4 == 0] <- NA 
+
+plot(y = -pres, x = nchla3, main = "Raw Values", xlab = "Chlorophyll-A (mg/m3)", ylab = "Pressure (decibar)", col = "red", cex = 0.25)
+points(y = -pres, x = nchla4, main = "Raw Values", xlab = "Chlorophyll-A (mg/m3)", ylab = "Pressure (decibar)", col = "black", cex = 0.25)
+legend("bottomright",legend=c("QC = 3", "QC = 4"), pch = c(1,1), col = c("red","black"))
+
+#Temperature
+ntemp0 <- (ntemp_qc == 0 & temp) * temp
+ntemp0[ntemp0 == 0] <- NA 
+
+ntemp1 <- (ntemp_qc == 1 & temp) * temp
+ntemp1[ntemp1 == 0] <- NA 
+
+ntemp2 <- (ntemp_qc == 2 & temp) * temp
+ntemp2[ntemp2 == 0] <- NA 
+
+ntemp3 <- (ntemp_qc == 3 & temp) * temp
+ntemp3[ntemp3 == 0] <- NA 
+
+ntemp4 <- (ntemp_qc == 4 & temp) * temp
+ntemp4[ntemp4 == 0] <- NA 
+
+plot(y = -pres, x = ntemp1, main = "Raw Values", xlab = "Temperature (°C)", ylab = "Pressure (decibar)", col = "green", cex = 0.25)
+points(y = -pres, x = ntemp0, col = "blue", cex = 0.25)
+points(y = -pres, x = ntemp2, col = "orange", cex = 0.25)
+points(y = -pres, x = ntemp3, col = "red", cex = 0.25)
+points(y = -pres, x = ntemp4, col = "black", cex = 0.25)
+legend("bottomright",legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red", "black"))
+
+#SECTION FOUR : TEST TO MAKE A ROUTINE OF WHAT HAVE BEEN DONE ABOVE --------------
+
+#Temperature
 for (i in 0:4){#There are 5 'RAW' QC
   #final temp
   if (i == 0){
-    tmp <- (nchla_qc == i & chla) * chla
+    tmp <- (ntemp_qc == i & temp) * temp
     tmp[tmp == 0] <- NA
     f <- list(tmp)
   }
   else{
-    tmp <- (nchla_qc == i & chla) * chla
+    tmp <- (ntemp_qc == i & temp) * temp
     tmp[tmp == 0] <- NA
     tmpi <- list(tmp)
     f <- c(f,tmpi)
@@ -163,41 +227,12 @@ for (i in 0:4){#There are 5 'RAW' QC
 }
 
 #Final plot
-#Save plot in the new working directory
-#Format png pour commencer
-png(filename = paste(nwd,"_CHLA",sep =""))
-plot(y = -pres, x = f[[4]], main = "Raw Values", xlab = "Chlorophyll-a (mg/m3)", ylab = "Pressure (decibar)", col = "red", cex = 0.25)#le point du premier 'plotting' doit avoir des valeurs sinon ça bugge
-points(y = -pres, x = f[[1]], col = "blue", cex = 0.25)
-points(y = -pres, x = f[[2]], col = "green", cex = 0.25)
-points(y = -pres, x = f[[3]], col = "orange", cex = 0.25)
-points(y = -pres, x = f[[5]], col = "black", cex = 0.25)
-legend("bottomright",legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red","black"))
-dev.off()
-
-#Temperature
-for (i in 0:4){
-  #final temp
-  if (i == 0){
-    tmp <- (ntemp_qc == i & temp) * temp
-    tmp[tmp == 0] <- NA
-    f <- list(tmp)
-  }
-  else{
-    tmp <- (ntemp_qc == i & temp) * temp
-    tmp[tmp == 0] <- NA
-    tmpi <- list(tmp)
-    f <- c(f,tmpi)
-  }
-}
-
-png(filename = paste(nwd,"_TEMP",sep =""))
-plot(y = -pres, x = f[[2]], main = "Raw Values", xlab = "Temperature (°C)", ylab = "Pressure (decibar)", col = "green", cex = 0.25)
+plot(y = -pres, x = f[[2]], main = "Raw Values", xlab = "Temperature (°C)", ylab = "Pressure (decibar)", col = "green", cex = 0.25)#le point du premier 'plotting' doit avoir des valeurs sinon ça bugge
 points(y = -pres, x = f[[1]], col = "blue", cex = 0.25)
 points(y = -pres, x = f[[3]], col = "orange", cex = 0.25)
 points(y = -pres, x = f[[4]], col = "red", cex = 0.25)
 points(y = -pres, x = f[[5]], col = "black", cex = 0.25)
 legend("bottomright",legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red","black"))
-dev.off()
 
 #Salinity
 for (i in 0:4){
@@ -214,14 +249,13 @@ for (i in 0:4){
   }
 }
 
-png(filename = paste(nwd,"_PSAL",sep =""))
+#Final plot
 plot(y = -pres, x = f[[2]], main = "Raw Values", xlab = "Salinity", ylab = "Pressure (decibar)", col = "green", cex = 0.25)
 points(y = -pres, x = f[[1]], col = "blue", cex = 0.25)
 points(y = -pres, x = f[[3]], col = "orange", cex = 0.25)
 points(y = -pres, x = f[[4]], col = "red", cex = 0.25)
 points(y = -pres, x = f[[5]], col = "black", cex = 0.25)
 legend("bottomright",legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red","black"))
-dev.off()
 
 #CDOM
 for (i in 0:4){
@@ -238,14 +272,13 @@ for (i in 0:4){
   }
 }
 
-png(filename = paste(nwd,"_CDOM",sep =""))
+#Final plot
 plot(y = -pres, x = f[[1]], main = "Raw Values", xlab = "CDOM (ppb)", ylab = "Pressure (decibar)", col = "blue", cex = 0.25)
 points(y = -pres, x = f[[2]], col = "green", cex = 0.25)
 points(y = -pres, x = f[[3]], col = "orange", cex = 0.25)
 points(y = -pres, x = f[[4]], col = "red", cex = 0.25)
 points(y = -pres, x = f[[5]], col = "black", cex = 0.25)
 legend("bottomright",legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red","black"))
-dev.off()
 
 #DOXY
 for (i in 0:4){
@@ -262,69 +295,18 @@ for (i in 0:4){
   }
 }
 
-#par(mar = c(5.1, 4.1, 4.1, 8.1), xpd =TRUE) #peut-être trouver un moyen d'ajuster la postion de la légende automatiquement
-png(filename = paste(nwd,"_DOXY",sep =""))
+#Final plot
 plot(y = -pres, x = f[[2]], main = "Raw Values", xlab = "Dissolved Oxygen (micromole/kg)", ylab = "Pressure (decibar)", col = "green", cex = 0.25)
 points(y = -pres, x = f[[1]], col = "blue", cex = 0.25)
 points(y = -pres, x = f[[3]], col = "orange", cex = 0.25)
 points(y = -pres, x = f[[4]], col = "red", cex = 0.25)
 points(y = -pres, x = f[[5]], col = "black", cex = 0.25)
 legend("bottomright",legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red","black"))
-#legend("topright", inset = c(-0.3,0), legend=c("QC = 0","QC = 1","QC = 2","QC = 3", "QC = 4"), pch = c(1,1), col = c("blue","green","orange","red","black"))
 dev.off()
-
-# SECTION FOUR : EXTRACTION OF CHLOROPHYLL-A FEATURES -----------------------------------------------------
-
-# #valuemax <- apply(chla,2,max, na.rm = TRUE)
-# valuemax[valuemax == -Inf] <- 0
-# #integratedvalue <- apply(chla,2,sum,na.rm = TRUE)
-
-#Clean chla matrix (all NA columns removed)
-index <- which(is.na(chla[1,]) == FALSE)
-for (i in 1:length(index)){
-  if(i == 1){
-    nchla <- chla[,index[i]]
-  }
-  else{
-    tmp <- chla[,index[i]]
-    nchla <- cbind(nchla,tmp)
-  }
-}
-colnames(nchla) <- c(1:ncol(nchla)) 
- 
-valuemax <- colMaxs(nchla, na.rm = TRUE)
-totvalue <- colSums2(nchla, na.rm = TRUE)
-maxchla <- seq(0,0,length.out = ncol(nchla))
-maxdepth <- seq (0,0,length.out = ncol(nchla))
-for (i in 1 : ncol(nchla)){
-  maxchla[i] <- which.max(nchla[,i])
-  maxdepth[i] <- pres[maxchla[i],index[i]]
-}
-
-datachla <- data.frame(valuemax,totvalue,maxdepth)
-
-# SECTION FIVE : GETTING SPATIO-TEMPORAL INFORMATION ON PROFILES ------------------------
-
-reftime <- ncvar_get(ncfile,"REFERENCE_DATE_TIME")#format YYYYMMDDHHMMSS
-juld <- ncvar_get(ncfile,"JULD")#units: days since 1950-01-01 00:00:00 UTC
-juldchla <- floor(juld[index])#gives the julian day for each chla profile and round the number
-
-#Conversion algorithm from julian day to the gregorian calendar : https://www.aviso.altimetry.fr/fr/donnees/outils/jours-calendaires-ou-jours-juliens.html
-lat <- ncvar_get(ncfile,"LATITUDE")
-lat <- lat[index]
-long <- ncvar_get(ncfile,"LONGITUDE")
-long <- long[index]
-datachla <- cbind(datachla,juldchla,lat,long)
-colnames(datachla) <- c("Max CHLA","Total CHLA","Max Depth", "CNES Julian Day", "Latitude", "Longitude")
-
-#trajectory
-png(filename = paste(nwd,"_trajectory",sep =""))
-plot(x = long, y = lat, xlab = "Longitude", ylab = "Latitude", pch = 21, col = "black", cex = 1)#rmq : sur odv : échelles x/y n'est pas la même
-tmp <- nrow(long)#nombre of profiles taken by the argo float
-points(x = datachla$Longitude[1], y = datachla$Latitude[1], col = "green", cex = 1, pch = 19)
-points(x = datachla$Longitude[floor(1/4*tmp)], y = datachla$Latitude[floor(1/4*tmp)], col = "yellow", cex = 1, pch = 19)
-points(x = datachla$Longitude[floor(1/2*tmp)], y = datachla$Latitude[floor(1/2*tmp)], col = "orange", cex = 1, pch = 19)
-points(x = datachla$Longitude[floor(3/4*tmp)], y = datachla$Latitude[floor(3/4*tmp)], col = "red", cex = 1, pch = 19)
-points(x = datachla$Longitude[floor(tmp)], y = datachla$Latitude[floor(tmp)], col = "black", cex = 1, pch = 19)
-legend("topright",legend=c("START","1/4 traj","1/2 traj","3/4 traj", "END"), pch = c(19,19), col = c("green","yellow","orange","red","black"))
-dev.off()
+# #Save image
+# wd <- getwd()#get working directory
+# file <-"./img/doxy.png"
+# if (file.exists(file)) stop(file, "already exists")
+# dir.create(dirname(file), showWarnings = FALSE)
+# png(file)
+# dev.off()
