@@ -1,5 +1,3 @@
-# SECTION ONE : EXTRACTING BASIC DATA FOR BIO-ARGO PROFILERS ------------------
-
 library(ncdf4)
 #More complex libraries for plotting data
 library(ggplot2)
@@ -9,10 +7,11 @@ library(reshape2)
 #for julian date manipulation
 library(chron)
 
+# SECTION ONE : EXTRACTING BASIC DATA FOR BIO-ARGO PROFILERS ------------------
 
 #Seuls fichiers qui possèdent des données de CHLORO. Seuls deux d'entrent eux possèdent aussi du CDOM
-filename <- c("6900807_Mprof.nc","6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
-filename <- c("6901866_Mprof.nc")
+#filename <- c("6900807_Mprof.nc","6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
+filename <- "6901866_Mprof.nc"
 
 ExtractVar<-function(Var,FloatInfo){
   with(FloatInfo,{
@@ -25,7 +24,6 @@ ExtractVar<-function(Var,FloatInfo){
   lvar_qctab<-do.call(cbind,lvar_qctab)
   
   # making dataframes, removing the NANs  
-  # On peut essayer de trouver méthode + simple pour chopper les indexs
   alevels<-1:N_LEVELS
   d<-ldply(as.list(1:N_PROF),function(iprof){
     indexes<- !(is.na(lvar[,iprof])|is.na(lvar[,iprof]))
@@ -45,7 +43,7 @@ ExtractVar<-function(Var,FloatInfo){
   d$lon  <-lon[d$aprofile]
   d$lat  <-lat[d$aprofile]
   
-  return(d=d) # Obligation de mettre un return? -> Pas sur, essaie...
+  return(d=d)
   })
   
 }  
@@ -70,55 +68,43 @@ argodf<-ldply(as.list(filename),function(file){
                   pres=pres,
                   lon=lon,
                   lat=lat)
-  
-  #SECTION THREE : USAGE OF PREVIOUS FUNCTIONS AND FINALIZATION OF OUR ARGO DATA FRAME ---------------
-  
-  CHLAL <- ExtractVar("CHLA",FloatInfo)
-  
-  CHLAL_ADJUSTED <- ExtractVar("CHLA_ADJUSTED",FloatInfo)
-  
-  #Subset of data frames
-  subCHLA<-subset(CHLAL,select=c("depth","juld","value","qc","lon","lat"))
-  colnames(subCHLA)[which(colnames(subCHLA)=="value")]<-"CHLA"
-  
-  subCHLA_ADJUSTED<-subset(CHLAL_ADJUSTED,select=c("depth","juld","value","qc","lon","lat"))
-  colnames(subCHLA_ADJUSTED)[which(colnames(subCHLA_ADJUSTED)=="value")]<-"CHLA_ADJUSTED"
-  
-  CHLAF <- ddply(subCHLA,~juld,summarize,  qc          = qc[which.max(CHLA)], 
-                                           depthmax    = depth[which.max(CHLA)],
-                                           maxvalue    = CHLA[which.max(CHLA)],
-                                           integration = sum(CHLA))
-  
-  CHLAF_ADJUSTED <- ddply(subCHLA_ADJUSTED,~juld,summarize,
-                          qc = qc[which.max(CHLA_ADJUSTED)], 
-                          depthmax = depth[which.max(CHLA_ADJUSTED)],
-                          maxvalue = CHLA_ADJUSTED[which.max(CHLA_ADJUSTED)],
-                          integration = sum(CHLA_ADJUSTED), 
-                          lon=mean(lon),
-                          lat=mean(lat))
-  
-  #RMQ : Comme on s'y attendait, la valeur de depthmax ne varie pas avec l'utilisation des données ajustées.
-  #On garde les lignes de commande associées car elles auront leur utilité plus tard (max value et intégration)
-  
-  #Comme on a des données ajustées pour la chlorophylle pour les 4 fichiers, je n'utilise plus que les 
-  #'ADJUSTED' values mais si ça n'était pas le cas, on aurait dû mettre une condition dès le début...
 
+  ### Direct use of adjusted values if available
+  chladf <- ExtractVar("CHLA_ADJUSTED",FloatInfo)
+  if (all(is.na(chladf)) == TRUE) {
+    chladf <- ExtractVar("CHLA",FloatInfo)
+  }
+  
+  #Chla subset df et final df
+  subchladf <- subset(chladf,select=c("depth","juld","value","qc","lon","lat"))
+  colnames(subchladf)[which(colnames(subchladf)=="value")]<-"CHLA"
+
+  chladf <- ddply(subchladf,~juld,summarize,
+                          qc = qc[which.max(CHLA)],
+                          depthmax = depth[which.max(CHLA)],
+                          maxvalue = CHLA[which.max(CHLA)],
+                          integration = sum(CHLA),
+                          lon=mean(lon),
+                          lat=mean(lat))#mean car la bouée a bougé sur la journée
+  
   id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
   
   #Construction du data frame final a lieu ici
-  data.frame(depthmax        = CHLAF_ADJUSTED$depthmax,
-             qc              = CHLAF_ADJUSTED$qc,
-             maxvalue        = CHLAF_ADJUSTED$maxvalue,
-             integratedvalue = CHLAF_ADJUSTED$integration,
-             juld            = CHLAF_ADJUSTED$juld,
-             day             = month.day.year(CHLAF_ADJUSTED$juld,c(1,1,1950))$day,
-             month           = month.day.year(CHLAF_ADJUSTED$juld,c(1,1,1950))$month,
-             year            = month.day.year(CHLAF_ADJUSTED$juld,c(1,1,1950))$year,
-             lon             = CHLAF_ADJUSTED$lon,
-             lat             = CHLAF_ADJUSTED$lat,
-             Platform        = unique(id))
+  data.frame(depthmax        = chladf$depthmax,
+             qc              = chladf$qc,
+             maxvalue        = chladf$maxvalue,
+             integratedvalue = chladf$integration,
+             juld            = chladf$juld,#pour moi, on peut virer juld ici
+             day             = month.day.year(chladf$juld,c(1,1,1950))$day,
+             month           = month.day.year(chladf$juld,c(1,1,1950))$month,
+             year            = month.day.year(chladf$juld,c(1,1,1950))$year,
+             lon             = chladf$lon,
+             lat             = chladf$lat,
+             Platform        = unique(id),
+             type            = "Argo")
   
 })
+
 
 #SECTION FOUR : Three visualization of distribution density for different period (showing different approach)
 ggplot(argodf, aes(x = depthmax, fill=factor(month))) +
@@ -126,7 +112,7 @@ ggplot(argodf, aes(x = depthmax, fill=factor(month))) +
 
 # function "cut" provide a partioning based on variable month in 4 class
 ggplot(argodf, aes(x = depthmax, fill=cut(month,4))) +
-  geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))
+  geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0)) + coord_flip()
 
 # --> Il semble qu'il y ait bien un cycle saisonnier marqué
 # Maintenant je voudrais définir les saisons à mon gout et voir si ça correspond d'année en année
@@ -188,11 +174,10 @@ library(ggalt)
 
 #Black Sea coordinates
 bs <- c(26.5,40,43,46)
-myMap <-get_map(location=bs, source="google",  crop=FALSE)
+myMap <-get_map(location=bs, source="google", crop=FALSE)
 ggmap(myMap) +
   geom_point(aes(x=lon, y=lat, color=factor(season) ),
             data = argodf2, alpha = .8)+facet_grid(year~Platform)
-
 
 ---------------------------------------------------------------------------------
   #SECTION SIX : Data from WOD ----------------------------------------------------
@@ -200,42 +185,114 @@ ggmap(myMap) +
   #Measured by CTD and OSD... -> En attendant de résoudre le problème de la base
   #de données EMODnet (807 datasets dispos..)
   
-wd <- getwd()
-setwd(paste0(wd,"/Merged"))
-#Creation of a list of files
-tmp <- list.files(pattern="*.nc")
-#tmp <- c("wod_011527263O.nc","wod_011529213O.nc")
-datadf <- ldply(as.list(tmp),function(file){
   
-  ncfile <- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
-  datachla <- ncvar_get(ncfile,"Chlorophyll")
-  datadepth <- ncvar_get(ncfile,"Pressure")
-  datalat <- ncvar_get(ncfile,"lat")
-  datalong <- ncvar_get(ncfile,"lon")
-  datadate <- ncvar_get(ncfile,"date")
-  nc_close(ncfile)#sinon ça buggera aux alentours du 1000ème fichier..
-  data.frame(Chlorophyll = datachla, Depth = datadepth, Latitude = datalat, Longitude = datalong, Date = datadate)
+  
+### ATTENTION : Utilisateur doit mettre ses fichiers ship-based dans un 
+### sous-répertoire sous le nom /Merged
+  
+wd <- getwd()
+
+#Creation of a list of files
+tmp <- list.files(path = paste0(wd,"/Merged"), pattern="*.nc")
+#tmp <- c("wod_011518869O.nc","wod_011518871O.nc","wod_011520385O.nc","wod_011527542O.nc")
+
+#fonction qui va éliminer certains fichiers qui ne répondent pas à des critères
+#que nous avons établis sur certaines bases
+filedf <- ldply(as.list(tmp), function(file){
+  bin <- 1#1 if criteria are ok, 0 otherwise
+  ncfile <- nc_open(paste0(wd,"/Merged/",file), write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  chla <- ncvar_get(ncfile,"Chlorophyll")
+  nsamples <- length(chla)
+  pressure <- ncvar_get(ncfile,"Pressure")
+  maxpressure <- pressure[nsamples]
+  nc_close(ncfile)
+  
+  #criteria
+  if (nsamples < 3){
+    bin <- 0
+  }
+  else if (maxpressure < 20){#test for 20m, attention seasonal effect...
+    bin <- 0
+  }
+  else if (length(chla[chla < 0]) != 0){
+    bin <- 0
+  }
+
+  #list(filename = file, bin = bin)
+  #filedf <- data.frame(filename = file, bin = bin)
+  data.frame(filename = file, bin = bin)
+  # subfiledf <- subset(filedf, bin == 1)
+  # subfiledf <- subset(subfiledf, select = "filename")
+  # as.list(subfiledf)
+  })
+  
+subfiledf <- subset(filedf, bin == 1)
+subfiledf <- subset(subfiledf, select = "filename")
+filelist <- as.list(subfiledf$filename) 
+
+shipdf <- ldply(as.list(filelist),function(file){
+  
+  ncfile <- nc_open(paste0(wd,"/Merged/",file), write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  chla <- ncvar_get(ncfile,"Chlorophyll")
+  depth <- ncvar_get(ncfile,"Pressure")
+  lat <- ncvar_get(ncfile,"lat")
+  long <- ncvar_get(ncfile,"lon")
+  time <- ncvar_get(ncfile,"time")
+  id <- ncvar_get(ncfile,"wod_unique_cast")
+  nc_close(ncfile)
+  data.frame(Chlorophyll = chla, Depth = depth, day = month.day.year(time,c(1,1,1770))$day,
+             month = month.day.year(time,c(1,1,1770))$month, year = month.day.year(time,c(1,1,1770))$year,
+             Latitude = lat, Longitude = long, Platform = id)
   
 })
 
-#Final data frame (dff)
-datadff <- ddply(datadf,~Date,summarize, 
+#Final data frame
+shipdff <- ddply(shipdf,~Platform,summarize, 
                  depthmax = Depth[which.max(Chlorophyll)],
                  maxvalue = Chlorophyll[which.max(Chlorophyll)],
-                 integration = sum(Chlorophyll), Latitude = Latitude[which.max(Latitude)],
-                 Longitude = Longitude[which.max(Longitude)])
+                 integratedvalue = sum(Chlorophyll), day = day[which.max(Chlorophyll)],
+                 month = month[which.max(Chlorophyll)], year = year[which.max(Chlorophyll)],
+                 lon = Longitude[which.max(Chlorophyll)], lat = Latitude[which.max(Chlorophyll)],
+                 type = "ship-based")#ship-based car pas d'infos précises sur WOD 
 
-#Data distribution
-ggplot(datadff, aes(depthmax)) + geom_density()#note qu'il a bcp de zéro car il semble y avoir pas mal de sampling en surface... (intérêt?)
+#Ajout des saisons                 
+shipdf2<-ddply(shipdff,~month, transform, season=1*(month %in% c(12,1,2))+
+                 2*(month %in% c(3,4,5 ))+
+                 3*(month %in% c(6,7,8 ))+
+                 4*(month %in% c(9,10,11 )))
 
-#Spatial Coverage
-myMap <-get_map(location=bs, source="google", maptype="satellite", crop=FALSE)
-ggmap(myMap) + geom_point(aes(x=Longitude, y=Latitude), data = datadff, alpha = .2)
+shipdf2$season[which(shipdf2$season == 1)]<-"Winter"
+shipdf2$season[which(shipdf2$season == 2)]<-"Spring"
+shipdf2$season[which(shipdf2$season == 3)]<-"Summer"
+shipdf2$season[which(shipdf2$season == 4)]<-"Autumn"
 
-#SECTION SEVEN : MERGING ARGO AND 'DISCRETE' SAMPLINGS -------------------------------------------
-argodepthmax <- melt(argodf$depthmax)#one column data frame
-discretedepthmax <- melt(datadff$depthmax)
-merged <- rbind(argodepthmax, discretedepthmax)
-colnames(merged)[which(colnames(merged)=="value")]<-"depthmax"
+shipdf2$season<-factor(shipdf2$season,levels = c("Winter","Spring","Summer","Autumn"))
 
-ggplot(merged, aes(depthmax)) + geom_density()+xlim(c(0,80))
+
+# #Data distribution
+# ggplot(datadff, aes(depthmax)) + geom_density()#note qu'il a bcp de zéro car il semble y avoir pas mal de sampling en surface... (intérêt?)
+# 
+# #Spatial Coverage
+# myMap <-get_map(location=bs, source="google", maptype="satellite", crop=FALSE)
+# ggmap(myMap) + geom_point(aes(x=Longitude, y=Latitude), data = datadff, alpha = .2)
+
+
+#SECTION SEVEN : MERGING ARGO AND SHIP-BASED SAMPLINGS -------------------------------------------
+merged <- merge(argodf2,shipdf2,all=T)
+merged <- subset(merged, select = c("depthmax", "maxvalue", "integratedvalue", 
+                                    "day", "month", "year", "lon", "lat",
+                                    "Platform", "type", "season"))
+
+ggplot(shipdf2, aes(x = depthmax)) +
+  geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))+
+  facet_grid(.~season,scales = "free")
+
+ggplot(argodf2, aes(x = depthmax)) +
+  geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))+
+  facet_grid(.~season,scales = "free")
+
+ggplot(shipdf2, aes(x = depthmax)) +
+  geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))
+
+ggplot(argodf2, aes(x = depthmax)) +
+  geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))
