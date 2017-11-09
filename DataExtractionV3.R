@@ -10,7 +10,7 @@ library(chron)
 # SECTION ONE : EXTRACTING BASIC DATA FOR BIO-ARGO PROFILERS ------------------
 
 #Seuls fichiers qui possèdent des données de CHLORO. Seuls deux d'entrent eux possèdent aussi du CDOM
-#filename <- c("6900807_Mprof.nc","6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
+filename <- c("6900807_Mprof.nc","6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
 filename <- "6901866_Mprof.nc"
 
 ExtractVar<-function(Var,FloatInfo){
@@ -205,16 +205,22 @@ filedf <- ldply(as.list(tmp), function(file){
   nsamples <- length(chla)
   pressure <- ncvar_get(ncfile,"Pressure")
   maxpressure <- pressure[nsamples]
+  lat <- ncvar_get(ncfile, "lat")
+  lon <- ncvar_get(ncfile,"lon")
   nc_close(ncfile)
   
   #criteria
-  if (nsamples < 3){
+  if (nsamples < 5){
     bin <- 0
   }
-  else if (maxpressure < 20){#test for 20m, attention seasonal effect...
+  else if (maxpressure < 20){#attention seasonal effect -> ai pris une sorte de borne inf
     bin <- 0
   }
   else if (length(chla[chla < 0]) != 0){
+    bin <- 0
+  }
+  #Pour virer le plateau continental nord-ouest (et aussi un peu sur l'extrême ouest)
+  else if (lat > 44.7 | lon < 28.4 | (lat > 43.7 & lon < 31)){
     bin <- 0
   }
 
@@ -270,7 +276,7 @@ shipdf2$season<-factor(shipdf2$season,levels = c("Winter","Spring","Summer","Aut
 
 
 # #Data distribution
-# ggplot(datadff, aes(depthmax)) + geom_density()#note qu'il a bcp de zéro car il semble y avoir pas mal de sampling en surface... (intérêt?)
+# ggplot(datadff, aes(depthmax)) + geom_density()#note qu'il y a bcp de zéro car il semble y avoir pas mal de sampling en surface... (intérêt?)
 # 
 # #Spatial Coverage
 # myMap <-get_map(location=bs, source="google", maptype="satellite", crop=FALSE)
@@ -285,14 +291,37 @@ merged <- subset(merged, select = c("depthmax", "maxvalue", "integratedvalue",
 
 ggplot(shipdf2, aes(x = depthmax)) +
   geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))+
-  facet_grid(.~season,scales = "free")
+  facet_grid(~season,scales = "free")
 
 ggplot(argodf2, aes(x = depthmax)) +
   geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))+
-  facet_grid(.~season,scales = "free")
+  facet_grid(~season,scales = "free")
 
 ggplot(shipdf2, aes(x = depthmax)) +
   geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))
 
 ggplot(argodf2, aes(x = depthmax)) +
   geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))
+
+# Spatial analysis of filtered ship files -------
+#Spatial Coverage
+myMap <-get_map(location=bs, source="google", maptype="satellite", crop=FALSE)
+h <- ggmap(myMap) +
+geom_point(aes(x=lon, y=lat, color = season), data = merged, alpha = .4) + 
+facet_grid(~type)  
+
+#Seasonal Coverage
+sc <- ggmap(myMap) + 
+  geom_point(aes(x=lon, y=lat, color = season), data = merged, alpha = .4) + 
+  facet_grid(type~season) 
+
+
+library(gganimate)
+library(gapminder)
+test <- ggmap(myMap) + 
+  geom_point(aes(x=lon, y=lat, color = season, frame = year), data = merged, alpha = .5) +
+  facet_grid(season~type)
+
+gganimate(test, interval = 5)
+gganimate(test, "general.gif")
+
