@@ -188,7 +188,7 @@ filedf <- ldply(as.list(tmp), function(file){
   if (nsamples < 5){
     bin <- 0
   }
-  else if (maxpressure < 20){#attention seasonal effect -> ai pris une sorte de borne inf
+  else if (maxpressure < 60){#attention seasonal effect -> ai pris une sorte de borne inf
     bin <- 0
   }
   else if (length(chla[chla < 0]) != 0){
@@ -271,6 +271,8 @@ ggplot(shipdf2, aes(x = depthmax)) +
 ggplot(argodf2, aes(x = depthmax)) +
   geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))+
   facet_grid(~season,scales = "free")
+
+
 
 ggplot(shipdf2, aes(x = depthmax)) +
   geom_density(alpha=.5)+ xlim(c(2, 80))+coord_flip()+xlim(c(80,0))
