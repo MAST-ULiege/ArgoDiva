@@ -188,7 +188,7 @@ filedf <- ldply(as.list(tmp), function(file){
   if (nsamples < 5){
     bin <- 0
   }
-  else if (maxpressure < 60){#attention seasonal effect -> ai pris une sorte de borne inf
+  else if (maxpressure < 60){#pour faire face au problème relevé par Arthur.
     bin <- 0
   }
   else if (length(chla[chla < 0]) != 0){
