@@ -27,12 +27,16 @@ fulldf <- ArgoSelect(selectCriterium)
 # Function definitions #
 ########################
 
+# To now about defined function you could use , look at :
 source("ArgoVertFunctions.R")
 
+# To add new function, use :  (using same structure as in the previous file)
+source("ArgoVertFunctions_USER.R")
 
+# list of the diagnostic to extract from Argos
+flist <- list("MaxTem","MaxSal")
 
-
-
+fdf   <- ArgoExtract(fulldf, flist)
 
 ##################################
 # Paremeters for diva input file #

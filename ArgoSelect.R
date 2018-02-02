@@ -47,25 +47,6 @@ ArgoSelect <- function(selectCriterium){
       
       dftot <- do.call(rbind, dflist)
 
-      # # Direct use of adjusted values if available
-      # chladf <- ExtractVar("CHLA_ADJUSTED",FloatInfo)
-      # if (all(is.na(chladf)) == TRUE) {
-      #   chladf <- ExtractVar("CHLA",FloatInfo)
-      # }
-      
-      #Chla subset df et final df
-      #subchladf <- subset(chladf,select=c("depth","juld","value","qc","lon","lat"))
-      #colnames(subchladf)[which(colnames(subchladf)=="value")]<-"CHLA"
-      
-      #chladf <- ddply(subchladf,~juld,summarize,
-                      # qc = qc[which.max(CHLA)],
-                      # depthmax = depth[which.max(CHLA)],
-                      # maxvalue = CHLA[which.max(CHLA)],
-                      # integration = sum(CHLA),
-                      # # Mean as the boy moved during the day
-                      # lon=mean(lon),
-                      # lat=mean(lat))
-      
       id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
       
       dftot$Platform <- unique(id)
@@ -74,20 +55,6 @@ ArgoSelect <- function(selectCriterium){
       dftot$year     <- month.day.year(dftot$juld,c(1,1,1950))$year
       
       return(dftot)
-      
-      # Construction of the final dataframe
-    #   data.frame(depthmax        = chladf$depthmax,
-    #              qc              = chladf$qc,
-    #              maxvalue        = chladf$maxvalue,
-    #              integratedvalue = chladf$integration,
-    #              juld            = chladf$juld,#pour moi, on peut virer juld ici
-    #              day             = month.day.year(chladf$juld,c(1,1,1950))$day,
-    #              month           = month.day.year(chladf$juld,c(1,1,1950))$month,
-    #              year            = month.day.year(chladf$juld,c(1,1,1950))$year,
-    #              lon             = chladf$lon,
-    #              lat             = chladf$lat,
-    #              Platform        = unique(id),
-    #              type            = "Argo")
      })
     return (do.call(rbind,argodflist))
   })
