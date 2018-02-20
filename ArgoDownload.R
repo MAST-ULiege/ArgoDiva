@@ -13,6 +13,8 @@ argo_param <- read.csv(file = "test.csv", sep = ",", na.strings="NA",
                  col.names = paste0("V", seq_len(maxparam), fill=TRUE), 
                  header = FALSE)
 
+
+
 #Note: C'est plus pour "nous", le code shell n'est de toute façon pas adapté
 #pour windows..
 
