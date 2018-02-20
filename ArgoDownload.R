@@ -1,5 +1,7 @@
 library(RCurl)#for ftp
 library(httr)
+library(plyr)
+
 # lines <- readLines("test.csv")
 # lines <- gsub('"', '', lines, fixed=TRUE)
 # data <- read.csv(textConnection(lines), header=FALSE)
@@ -9,21 +11,31 @@ library(httr)
 system("bash argo.sh")
 
 maxparam <- max(count.fields("ArgoIdParameters.csv", sep = ','))#max number of parameters 
-argo_param <- read.csv(file = "test.csv", sep = ",", na.strings="NA", 
+argo_param <- read.csv(file = "ArgoIdParameters.csv", sep = ",", na.strings="NA", 
                  col.names = paste0("V", seq_len(maxparam), fill=TRUE), 
                  header = FALSE)
 
 
 #Merge profile download
-url <-"ftp://ftp.ifremer.fr/ifremer/argo/etc/netcdf4/dac/"
-url <-"ftp://ftp.ifremer.fr/ifremer/argo/etc/netcdf4/dac/coriolis/1901205/"
-#exemple : coriolis : 1901205"
-userpwd <-"anonymous:"
-filenames <- getURL(url, userpwd = userpwd,
-                    ftp.use.epsv = FALSE,dirlistonly = TRUE) 
+source_url <-"ftp://ftp.ifremer.fr/ifremer/argo/etc/netcdf4/dac/"
 
-filenames = paste(url, strsplit(filenames, "\r*\n")[[1]], sep = "")
-GET(url=filenames, write_disk("1901205_MProf.nc", overwrite=T))
+#ARGO identification number
+WOD <- c("6902734","1901206")
+group <- c("bodc","coriolis")
+
+userpwd <-"anonymous: "
+
+urldf <- ldply(as.list(1:length(WOD)), function(i){
+  url <- paste0(source_url,group[i],"/",WOD[i],"/")
+  data.frame(url = url)
+})
+
+for (i in 1:length(filenames)){
+  filenames <- getURL(urldf$url[i], userpwd = userpwd,
+                      ftp.use.epsv = FALSE,dirlistonly = TRUE) 
+  file <- paste(urldf$url[i], strsplit(filenames, "\r*\n")[[1]], sep = "")
+  GET(url=file, write_disk(paste0(WOD[i],"_MProf.nc", overwrite=T)))
+}
 
 #Note: C'est plus pour "nous", le code shell n'est de toute façon pas adapté
 #pour windows..
