@@ -27,19 +27,22 @@ rm ArgoIdParameters.csv
 
 while IFS=, read file date latitude longitude ocean profiler_type institution parameters date_update
 	do
+	group=`echo $file | awk -F/ '{print $1}'`
 	id=`echo $file | awk -F/ '{print $2}'`
 	param=`echo $parameters`
-	echo "$id $param" >> $tmp
+	echo "$group $id $param" >> $tmp
 done < $index
 
-rm argo_merge-profie_index.txt
+#remove unecessary lines
+sed -i '/#/d' $tmp
+sed -i '/file/d' $tmp
+
 
 #remove duplicates (note : We work we merged profiles so it could be a could thing to only removes id duplicates but we would then need to retain the most recent form of the id.. (add date_update?), note que ce n'est pas forcement une augmentaiton avec le temps -> ex : 6901865
 sort tmp.txt | uniq >> ArgoIdParameters.txt
-rm tmp.txt
+#rm tmp.txt
 
-#remove first and last line
-sed -i '$d' ArgoIdParameters.txt
-sed -i '1d' ArgoIdParameters.txt
+#create csv file for R
 sed 's/ \+/,/g' ArgoIdParameters.txt > ArgoIdParameters.csv
 rm argo_merge-profile_index.txt
+rm tmp.txt
