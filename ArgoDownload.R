@@ -1,5 +1,5 @@
-#library(RCurl)#for ftp
-
+library(RCurl)#for ftp
+library(httr)
 # lines <- readLines("test.csv")
 # lines <- gsub('"', '', lines, fixed=TRUE)
 # data <- read.csv(textConnection(lines), header=FALSE)
@@ -14,6 +14,16 @@ argo_param <- read.csv(file = "test.csv", sep = ",", na.strings="NA",
                  header = FALSE)
 
 
+#Merge profile download
+url <-"ftp://ftp.ifremer.fr/ifremer/argo/etc/netcdf4/dac/"
+url <-"ftp://ftp.ifremer.fr/ifremer/argo/etc/netcdf4/dac/coriolis/1901205/"
+#exemple : coriolis : 1901205"
+userpwd <-"anonymous:"
+filenames <- getURL(url, userpwd = userpwd,
+                    ftp.use.epsv = FALSE,dirlistonly = TRUE) 
+
+filenames = paste(url, strsplit(filenames, "\r*\n")[[1]], sep = "")
+GET(url=filenames, write_disk("1901205_MProf.nc", overwrite=T))
 
 #Note: C'est plus pour "nous", le code shell n'est de toute façon pas adapté
 #pour windows..
