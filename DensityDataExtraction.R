@@ -8,6 +8,8 @@ library(reshape2)
 library(chron)
 #for computing potential density anomalies
 library(gsw)
+library(viridis)#same color palette than Julia's default one
+library(TTR)#for SMA filter
 
 # Extracting data from ARGO buoys ------------------
 #potential density anomaly as y axis
@@ -175,22 +177,275 @@ argodf<-ldply(as.list(filename),function(file){
                day             = month.day.year(chladf$juld,c(1,1,1950))$day,
                month           = month.day.year(chladf$juld,c(1,1,1950))$month,
                year            = month.day.year(chladf$juld,c(1,1,1950))$year,
+               DOY             = as.integer(strftime(as.Date(chladf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
                lon             = chladf$lon,
                lat             = chladf$lat,
-               Platform        = unique(id),
+               Platform        = as.numeric(unique(id)),
                type            = "Argo") 
   
 })
 
+########################################################################### PROFILES DF (TFE)
 
-#Visualization of distribution density for different period (showing different approach)
-ggplot(argodf, aes(x = rho_anomalymax)) + geom_density(alpha=.5) + coord_flip()
+profiledf<-ldply(as.list(filename),function(file){
+  
+  #Opening the file in a open-only mode
+  ncfile   <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  
+  #Dimensions
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  cycle_number <- ncvar_get(ncfile,"CYCLE_NUMBER")
+  cycle_number <- cycle_number[N_PROF]
+  
+    FloatInfo<-list(N_PROF=N_PROF,
+                    N_LEVELS=N_LEVELS,
+                    juld = juld,
+                    pres=pres,
+                    lon=lon,
+                    lat=lat,
+                    cycle_number = cycle_number
+    )
+  
+  ### Direct use of adjusted values if available
+  chladf <- ExtractVar("CHLA_ADJUSTED",FloatInfo)
+  if (all(is.na(chladf)) == TRUE) {
+    chladf <- ExtractVar("CHLA",FloatInfo)
+  }
+  
+  #Extraction de l'anomalie de densité potentielle
+  densitydf <- ExtractDensity(chladf, FloatInfo)
+  
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  
+  #Construction du data frame final a lieu ici
+  data.frame(density       = densitydf$rho_anomaly,
+             juld            = densitydf$juld,
+             chla           = densitydf$CHLA,
+             day             = month.day.year(densitydf$juld,c(1,1,1950))$day,
+             month           = month.day.year(densitydf$juld,c(1,1,1950))$month,
+             year            = month.day.year(densitydf$juld,c(1,1,1950))$year,
+             DOY             = as.integer(strftime(as.Date(densitydf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             #lon             = chladf$lon,
+             #lat             = chladf$lat,
+             Platform        = as.numeric(unique(id)),
+             type            = "Argo")
+})
+
+#pour supprimer les doublons qui apparaissent... (note que l'on supprime peut-être trop.. à check)
+profiledf <- unique(profiledf)
+#Assign a profile number according to the (unique due to two decimals) julian day 
+profiledf <- transform(profiledf,id=as.numeric(factor(juld)))
+
+#éventuellement -> introduit un peu d'incertitude mais pas tant que cela
+density_duplicate <- which(duplicated(profiledf$density))
+profiledf <- profiledf[-density_duplicate,]
+
+
+## PAS SUPER CODE ##
+#profiles that we keep
+keepid <- read.table("dat_juld.txt", header = TRUE, sep = "", numerals = c("warn.loss"))
+
+#Reorder
+profiledf <- profiledf[order(profiledf$juld, na.last=TRUE, decreasing=FALSE),]
+n <- profiledf
+
+#Remove unecessary profiles from the "database" profiledf
+#float precision............
+#all.equal
+tmp <- profiledf[profiledf$DOY==keepid$DOY[1] &
+            profiledf$Platform == keepid$Platform[1] &
+              profiledf$year == keepid$year[1],]
+
+for (i in 2:length(keepid$DOY)){
+tmp2 <- profiledf[profiledf$DOY==keepid$DOY[i] &
+                 profiledf$Platform == keepid$Platform[i] &
+                 profiledf$year == keepid$year[i],]
+tmp <- rbind(tmp,tmp2)
+}
+
+tmp <- transform(tmp,id=as.numeric(factor(juld)))#pas parfait mais bon
+profiledf <- tmp
+
+## END PAS SUPER CODE
+
+###### TEST FILTRATION DONNÉES
+
+filterpoints <- 10
+  
+# remove depth duplicate
+testdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
+  tmp <- profiledf[profiledf$id==i,]
+  if (length(tmp$chla) > filterpoints){
+  meanchla <- SMA(tmp$chla,filterpoints)#Simple Moving Average (remove sharp peaks and smooth the global curve)
+  tmp$chla <- meanchla
+  data.frame(tmp = tmp)
+  }
+})
+
+colnames(testdf) <- c("density", "juld","chla","day","month","year","DOY","Platform","type","id")
+
+profiledf <- testdf
+
+#########
+
+profiledf2<-ddply(profiledf,~month, transform, season=1*(month %in% c(12,1,2))+
+                    2*(month %in% c(3,4,5 ))+
+                    3*(month %in% c(6,7,8 ))+
+                    4*(month %in% c(9,10,11 )))
+
+#plots (cfr. Navarro et al. 2013, figure 3)
+
+# ggplot(profiledf, aes(x=density, y=chla, color=month, group=juld)) + geom_line() +
+#   facet_grid(~year) + xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
+#   coord_flip() + xlim(c(15.5,13.5)) 
+# 
+# ggplot(profiledf, aes(x=density, y=chla, color=month, group=juld)) + geom_line()+ 
+#   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
+#   coord_flip() + xlim(c(15.5,13.5))
+# 
+# ggplot(profiledf, aes(x=density, y=chla, color=month, group=juld)) +
+#   geom_line() + facet_grid(~year) +
+#   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
+#   xlim(15, 13) + ylim(0,4) +
+#   coord_flip() + scale_color_gradientn(colours = rainbow(5))
+
+#Temporal evolution for 2017
+tmp <- profiledf2[profiledf2$year == 2017,]
+Per1 <- tmp[tmp$DOY <= 10,]
+Per2 <- tmp[tmp$DOY >= 30 & tmp$DOY <= 40,]
+Per3 <- tmp[tmp$DOY >= 60 & tmp$DOY <= 70,]
+Per4 <- tmp[tmp$DOY >= 90 & tmp$DOY <= 100,]
+Per5 <- tmp[tmp$DOY >= 120 & tmp$DOY <= 130,]
+Per6 <- tmp[tmp$DOY >= 150 & tmp$DOY <= 160,]
+Per7 <- tmp[tmp$DOY >= 180 & tmp$DOY <= 190,]
+Per8 <- tmp[tmp$DOY >= 210 & tmp$DOY <= 220,]
+Per9 <- tmp[tmp$DOY >= 240 & tmp$DOY <= 250,]
+Per10 <- tmp[tmp$DOY >= 270 & tmp$DOY <= 280,]
+Per11 <- tmp[tmp$DOY >= 300 & tmp$DOY <= 310,]
+Per12 <- tmp[tmp$DOY >= 330 & tmp$DOY <= 366,]
+
+Per1$group <- c("1/10Jan")
+Per2$group <- c("30Jan/9Feb")
+Per3$group <- c("1/11Mar")
+Per4$group <- c("31Mar/10Apr")
+Per5$group <- c("30Apr/10May")
+Per6$group <- c("30May/9Jun")
+Per7$group <- c("29Jun/9Jul")
+Per8$group <- c("29Jul/8Aug")
+Per9$group <- c("28Aug/7Sep")
+Per10$group <- c("27Sep/7Oct")
+Per11$group <- c("27Oct/6Nov")
+Per12$group <- c("26Nov/31Dec")
+
+perioddf <- rbind(Per1, Per2, Per3, Per4, Per5, Per6, Per7, Per8, Per9, Per10, Per11, Per12)
+
+#ordering facet
+perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar',
+                                                 '31Mar/10Apr','30Apr/10May','30May/9Jun',
+                                                 '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
+                                                 '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec'))
+
+#same as DepthDataExtraction
+ggplot(perioddf, aes(x=density, y=chla, group=juld)) +
+  geom_line() + facet_grid(~group) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) + coord_flip() + scale_x_reverse()
+
+ggplot(profiledf, aes(x=density, y=chla, color=month, group=juld)) +
+  geom_line() + facet_grid(~year) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_color_viridis() +  scale_x_reverse()
+
+ggplot(profiledf, aes(x=density, y=chla, color=month, group=juld)) +
+  geom_line() + facet_grid(~year) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_color_gradientn(colours = rainbow(5)) + scale_x_reverse()
+
+#for continuous scale
+ggplot(profiledf2, aes(x=density, y=chla, color=season, group=juld)) +
+  geom_line() + facet_grid(~year) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_color_viridis() + scale_x_reverse()
+
+#discrete case
+profiledf2$season[profiledf2$season == 1] <- "Winter"
+profiledf2$season[profiledf2$season == 2] <- "Spring"
+profiledf2$season[profiledf2$season == 3] <- "Summer"
+profiledf2$season[profiledf2$season == 4] <- "Autumn"
+
+ggplot(profiledf2, aes(x=density, y=chla, color=season, group=juld)) +
+  geom_line() + facet_grid(~year) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_x_reverse()
+
+profiledf2$month[profiledf2$month == 1] <- "Jan"
+profiledf2$month[profiledf2$month == 2] <- "Feb"
+profiledf2$month[profiledf2$month == 3] <- "Mar"
+profiledf2$month[profiledf2$month == 4] <- "Apr"
+profiledf2$month[profiledf2$month == 5] <- "May"
+profiledf2$month[profiledf2$month == 6] <- "Jun"
+profiledf2$month[profiledf2$month == 7] <- "Jul"
+profiledf2$month[profiledf2$month == 8] <- "Aug"
+profiledf2$month[profiledf2$month == 9] <- "Sep"
+profiledf2$month[profiledf2$month == 10] <- "Oct"
+profiledf2$month[profiledf2$month == 11] <- "Nov"
+profiledf2$month[profiledf2$month == 12] <- "Dec"
+
+profiledf2$month = factor(profiledf2$month, levels=c('Jan','Feb','Mar','Apr','May','Jun',
+                                                 'Jul','Aug','Sep','Oct','Nov','Dec'))
+
+ggplot(profiledf2, aes(x=density, y=chla, color=month, group=juld)) +
+  geom_line() + facet_grid(~year) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_x_reverse()
+
+#2017
+
+tmp <- profiledf2[profiledf2$year == 2017,]
+
+ggplot(tmp, aes(x=density, y=chla, color=season, group=juld)) +
+  geom_line() + facet_grid(~season) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_x_reverse()
+
+ggplot(profiledf2, aes(x=density, y=chla, color=month, group=juld)) +
+  geom_line() + facet_grid(~season) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_color_gradientn(colours = rainbow(5)) + scale_x_reverse()
+  coord_flip() + scale_color_viridis() + scale_x_reverse()
+
+########################################################################################
+
+
 
 # Nasty code to get a user-defined season
 argodf2<-ddply(argodf,~month, transform, season=1*(month %in% c(12,1,2))+
                  2*(month %in% c(3,4,5 ))+
                  3*(month %in% c(6,7,8 ))+
                  4*(month %in% c(9,10,11 )))
+
+#pour tenir compte des saisons
+# argodf4 <- subset(argodf2, select=c("lon","lat","juld","rho_anomalymax","season"))
+# 
+
+# write.table(argodf4, file="rhoInput_season.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = TRUE)
+
+argodf5 <- subset(argodf2, select=c("lon","lat","juld","rho_anomalymax","DOY"))
+write.table(argodf5, file="rhoInput_DOY.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+            row.names = FALSE, col.names = TRUE)
 
 argodf2$season[which(argodf2$season == 1)]<-"Winter"
 argodf2$season[which(argodf2$season == 2)]<-"Spring"
@@ -254,7 +509,7 @@ filedf <- ldply(as.list(tmp), function(file){
   if (nsamples < 3){
     bin <- 0
   }
-  else if (maxpressure < 20){#attention seasonal effect -> ai pris une sorte de borne inf
+  else if (maxpressure < 60){#attention seasonal effect -> ai pris une sorte de borne inf
     bin <- 0
   }
   else if (length(chla[chla < 0]) != 0){
@@ -388,4 +643,221 @@ z <- ggplot(argodf2, aes(x = rho_anomalymax, fill=factor(year), frame = year)) +
 
 gganimate(z,interval = 4)
 # gganimate(z, "density_anomaly.gif")
+
+#seasonal density plot for argo AND ship data
+ggplot(merged, aes(x = rho_anomalymax, color = type)) + geom_density(alpha=.5) + coord_flip() +
+  facet_grid(.~season, scales = "free") + xlim(c(16,11)) 
+
+ggplot(merged, aes(x = rho_anomalymax, color = type)) + geom_density(alpha=.5) + coord_flip()
+
+#################################################################################################
+#################################################################################################
+#################################################################################################
+
+#Add downwelling photosynthetic radiation --------
+#ATTENTION seulement 3 bouées sont équipées de capteur de PAR
+filename <- c("6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
+
+#Fonction similaire à ExtractDensity mais adapté à la PAR 
+ExtractDensityPAR <- function(pardf, FloatInfo){
+  
+  tempdf <- ExtractVar("TEMP_ADJUSTED",FloatInfo)
+  if (all(is.na(tempdf)) == TRUE) {
+    tempdf <- ExtractVar("TEMP",FloatInfo)
+  }
+  
+  psaldf <- ExtractVar("PSAL_ADJUSTED",FloatInfo)
+  if (all(is.na(psaldf)) == TRUE) {
+    psaldf <- ExtractVar("PSAL",FloatInfo)
+  }
+  
+  #Extract matching rows of a data frame
+  tempdf <- match_df(tempdf,pardf, on = c("depth", "juld"))
+  psaldf <- match_df(psaldf,pardf, on = c("depth", "juld"))
+  
+  #Sub data frames
+  
+  subtempdf <- subset(tempdf, select = c("value","depth","aprofile", "alevel","juld","lon","lat"))
+  colnames(subtempdf)[which(colnames(subtempdf)=="value")]<-"TEMP"
+  subpsaldf <- subset(psaldf, select = c("value","depth","aprofile","juld"))
+  colnames(subpsaldf)[which(colnames(subpsaldf)=="value")]<-"PSAL"
+  subpardf <- subset(pardf, select = c("value","depth","aprofile", "alevel","juld"))
+  colnames(subpardf)[which(colnames(subpardf)=="value")]<-"PAR"
+  colnames(subpardf)[which(colnames(subpardf)=="aprofile")]<-"profilePAR"
+  colnames(subpardf)[which(colnames(subpardf)=="alevel")]<-"levelPAR"
+  joindf <- join(subtempdf,subpsaldf, by = c("depth", "aprofile", "juld"))
+  colnames(joindf)[which(colnames(joindf)=="aprofile")]<-"profileTEMP/PSAL"
+  colnames(joindf)[which(colnames(joindf)=="alevel")]<-"levelTEMP/PSAL"
+  subpardf <- match_df(subpardf,joindf, on = c("depth", "juld"))
+  finaldf <- join(subpardf,joindf, by = c("depth","juld"))
+  
+  #use of gsw package
+  #NEED CONVERSION OF PRACTICAL SALINITY TO ABSOLUTE SALINITY BEFORE USING THE FOLLOWING FUNCTION
+  #TEMP is OK because conservative temperature is the same as in-situ temperature (I guess)
+  psal <- gsw_SA_from_SP(finaldf$PSAL,finaldf$depth,finaldf$lon,finaldf$lat)
+  rho_anomaly <- gsw_sigma0(psal,finaldf$TEMP)
+  
+  rhodf <- data.frame(Depth= finaldf$depth,
+                      rho_anomaly = rho_anomaly,  
+                      PAR = finaldf$PAR,
+                      TEMP = finaldf$TEMP,
+                      PSAL = psal,
+                      juld            = finaldf$juld,
+                      day             = month.day.year(finaldf$juld,c(1,1,1950))$day,
+                      month           = month.day.year(finaldf$juld,c(1,1,1950))$month,
+                      year            = month.day.year(finaldf$juld,c(1,1,1950))$year,
+                      lon             = finaldf$lon,
+                      lat             = finaldf$lat)
+}
+
+
+argopardf<-ldply(as.list(filename),function(file){
+  
+  #Opening the file in a open-only mode
+  ncfile   <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  
+  #Dimensions
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  cycle_number <- ncvar_get(ncfile,"CYCLE_NUMBER")
+  cycle_number <- cycle_number[N_PROF]
+  
+  FloatInfo<-list(N_PROF=N_PROF,
+                  N_LEVELS=N_LEVELS,
+                  juld = juld,
+                  pres=pres,
+                  lon=lon,
+                  lat=lat,
+                  cycle_number = cycle_number
+  )
+  
+  
+  ### Direct use of adjusted values if available
+  pardf <- ExtractVar("DOWNWELLING_PAR_ADJUSTED",FloatInfo)
+  if (all(is.na(psaldf)) == TRUE) {
+    pardf <- ExtractVar("DOWNWELLING_PAR",FloatInfo)
+  }
+  
+  #Extraction de l'anomalie de densité potentielle
+  pardf <- ExtractDensityPAR(pardf, FloatInfo)
+  
+  subpardf <- subset(pardf,select=c("rho_anomaly","juld","PAR","lon","lat"))
+  
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  
+  nc_close(ncfile)
+  
+  #Construction du data frame final a lieu ici
+  data.frame(rho_anomaly = subpardf$rho_anomaly,
+             PAR        = subpardf$PAR,
+             juld            = subpardf$juld,
+             day             = month.day.year(subpardf$juld,c(1,1,1950))$day,
+             month           = month.day.year(subpardf$juld,c(1,1,1950))$month,
+             year            = month.day.year(subpardf$juld,c(1,1,1950))$year,
+             lon             = subpardf$lon,
+             lat             = subpardf$lat,
+             Platform        = unique(id),
+             type            = "Argo") 
+  
+})
+
+#################################################################################################
+#################################################################################################
+#################################################################################################
+
+#Fluorescence data
+
+#change directory
+#Creation of a list of files
+tmp <- list.files(path = paste0(wd,"/FLUO/"), pattern="*.nc")
+
+#Vu la tête du contenu des fichiers on va attendre avant de faire le filtre.. 
+#Va falloir trouver un moyen de ne pas virer le fichier s'il y a des valeurs négatives ou aberrantes
+# -> fixer des seuils de validité et mettre des NA là où les données aberrantes se trouvent pour 
+# jeter tout le fichier.. NOTE : Pourrait se faire également dans le filtre ici plus haut.
+
+fluodf <- ldply(as.list(tmp), function(file){
+
+  ncfile <- nc_open(paste0(wd,"/FLUO/",file), write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  
+  lat <- ncvar_get(ncfile, "LATITUDE")#lat, lon et juld n'ont pas la même taille que les autres
+  lon <- ncvar_get(ncfile,"LONGITUDE")
+  juld <- ncvar_get(ncfile,"TIME")#days since 1950-01-01
+  juld[juld < 3400] <- NA #faudra filtrer les fichiers pourris
+  juld[juld > 25000] <- NA
+  fluo <- ncvar_get(ncfile,"FLU2")
+  #pres <- ncvar_get(ncfile,"PRES")
+  #temp <- ncvar_get(ncfile,"TEMP")
+  #psal <- ncvar_get(ncfile,"PSAL")
+  #rep function? plutôt que boucle...
+  # n <- length(fluo[,1])
+  # m <- length(lat)
+  # #creation of empty matrices for repeating data (lat,lon and juld)
+  # nlat <- matrix(nrow = n, ncol = m)
+  # nlon <- matrix(nrow = n, ncol = m)
+  # njuld <- matrix(nrow = n, ncol = m)
+  
+#   for (i in 1:m){
+#   nlat[,i] <- lat[i]
+#   nlon[,i] <- lon[i]
+#   njuld[,i] <- juld[i]
+# }
+  
+  # psal <- gsw_SA_from_SP(psal,pres,lon,lat)
+  # psal[psal > 35] <- NA #Black Sea : Salinité comprise entre X et X (get rid of outliers)
+  # psal[psal < 5] <- NA
+  nc_close(ncfile)
+  
+  data.frame(lat = lat, lon = lon, juld = juld,day = month.day.year(juld,c(1,1,1950))$day,
+             month           = month.day.year(juld,c(1,1,1950))$month,
+             year            = month.day.year(juld,c(1,1,1950))$year)
+})
+
+#Ajout des saisons                 
+fluodf2<-ddply(fluodf,~month, transform, season=1*(month %in% c(12,1,2))+
+                 2*(month %in% c(3,4,5 ))+
+                 3*(month %in% c(6,7,8 ))+
+                 4*(month %in% c(9,10,11 )))
+
+fluodf2$season[which(fluodf2$season == 1)]<-"Winter"
+fluodf2$season[which(fluodf2$season == 2)]<-"Spring"
+fluodf2$season[which(fluodf2$season == 3)]<-"Summer"
+fluodf2$season[which(fluodf2$season == 4)]<-"Autumn"
+
+fluodf2$season<-factor(fluodf2$season,levels = c("Winter","Spring","Summer","Autumn"))
+
+#Spatio-temporal coverage
+myMap <-get_map(location=bs, source="google", maptype="satellite", crop=FALSE)
+ggmap(myMap) + geom_point(aes(x=lon, y=lat, color = season), data = fluodf2, alpha = .4)  
+
+#Seasonal Coverage
+ggmap(myMap) + 
+  geom_point(aes(x=lon, y=lat, color = season), data = fluodf2, alpha = .2) + 
+  facet_grid(~season) 
+
+#################################################################################################
+#################################################################################################
+#################################################################################################
+
+#JUST FOR ARGO DATA FOR NOW
+#Data export test on argodf2
+argodf3 <- subset(argodf2, select=c("lon","lat","juld","rho_anomalymax","maxvalue","day","month","year"))
+write.table(argodf3, file="rhoInput.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+            row.names = FALSE, col.names = TRUE)
+
+# write.table(argodf3, file="rhoInput.csv", sep=",", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = TRUE)
+
+# write.table(argodf3, file="rhoInput.txt", sep="\t", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = TRUE)
+
+#TO DO: REORDER THE DATAFRAME FROM MIN TO MAX AND/OR return a table with min and max values for 
+#each column
+
+system("bash inputfile.sh")#execution of a shell script to have a 'clean' input file
+
 
