@@ -104,9 +104,10 @@ finaldf <- join(subchladf,joindf, by = c("depth","juld"))
 
 #use of gsw package
 #NEED CONVERSION OF PRACTICAL SALINITY TO ABSOLUTE SALINITY BEFORE USING THE FOLLOWING FUNCTION
-#TEMP is OK because conservative temperature is the same as in-situ temperature (I guess)
+#NEED CONVERSION OF IN-SITU TEMPERATURE TO CONSERVATIVE TEMPERATURE
 psal <- gsw_SA_from_SP(finaldf$PSAL,finaldf$depth,finaldf$lon,finaldf$lat)
-rho_anomaly <- gsw_sigma0(psal,finaldf$TEMP)
+temp <- gsw_CT_from_t(psal,finaldf$TEMP,finaldf$depth)
+rho_anomaly <- gsw_sigma0(psal,temp)
 
 rhodf <- data.frame(Depth= finaldf$depth,
            rho_anomaly = rho_anomaly,  
