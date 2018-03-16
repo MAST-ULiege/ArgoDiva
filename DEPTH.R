@@ -185,6 +185,15 @@ crit4 <- argodf[(argodf$depthmax >= 80),] #car nls se fait sur les premiers 80m
 criteriadf <- rbind(crit1, crit2, crit3, crit4)
 criteriadf <- unique(criteriadf)
 
+#nouveau selection criteria... -> car l'exclusion du dcm < 1m ne peut se faire qu'après le fit..
+#la méthode de Navarro est pas super top à ce niveau, la gars n'avait aucune sigmoide ou quoi??
+
+crit2 <- argodf[(argodf$bottom < 100),]#Remove profiles too shallow (à voir si on garde ou pas ->
+crit4 <- argodf[(argodf$depthmax >= 100),] #car nls se fait sur les premiers 80m
+crit3 <- argodf[(argodf$depthmax == argodf$bottom),]#Bad profiles (all values at the same depth)
+criteriadf <- rbind(crit2, crit3, crit4)
+criteriadf <- unique(criteriadf)
+
 #### TEST
 
 forRho1 <- as.data.frame(criteriadf$juld)
@@ -572,7 +581,7 @@ Rcoefdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
 RcoefdfV2 <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   #i <- 1
   tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
-  depthindex <- which.min(tmp$depth <= 80)#on peut modifier cette profondeur mais alors il faut regarder pour les fit functions prises au-dessus.... (et avec 100 ça marche)
+  depthindex <- which.min(tmp$depth <= 100)#on peut modifier cette profondeur mais alors il faut regarder pour les fit functions prises au-dessus.... (et avec 100 ça marche)
   tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
   x <- tab$x
   sigmoid <- fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
@@ -590,16 +599,76 @@ RcoefdfV2 <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   rcoef_sigmoid <- 1-(ss_res_sigmoid/ss_tot)
   rcoef_gaussian <- 1-(ss_res_gaussian/ss_tot)
   #i <- i +1
-  data.frame(rcoef_sigmoid = rcoef_sigmoid, rcoef_gaussian = rcoef_gaussian)
+  data.frame(rcoef_sigmoid = rcoef_sigmoid, rcoef_gaussian = rcoef_gaussian, id = tmp$id[1], juld = tmp$juld[1])
 })
 
+########## BIG QUESTION ##########
 
+#Pour le moment je fais un fit sur les premiers 100 m car je fais l'hypothèse que l'on est en
+#bonne approximation à 0 pour la [chloro] jusqu'à 100.
+#Après... si on fais le QC regional test et qu'on règle les profils de chloro de la black sea
+#on pourrait le faire sur l'entièreté des profils.. MAIS est-ce que cela vaut le coup? 
+#ÇA FERAIT DES REPORTS DANS LES DATES, ÇA M'ARRANGE PAS, IL SERAIT PLUS SAGE DE PROUVER QUE C'EST
+#UNE BONNE HYPOTHÈSE LES PREMIERS 100M.
 
+##################################
 
+#classification des profiles
+
+R_crit <- 0.8 #80% de variance expliquée (Navarro c'était 90%)
+
+classifdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
+
+  #tmp <- profiledf[profiledf$id==i,]
+  tmp <- gaussiandf[gaussiandf$id==i,]
+  
+  if(RcoefdfV2$rcoef_sigmoid[i] & RcoefdfV2$rcoef_gaussian[i] < R_crit){
+    classif <- "other"
+  } 
+  else if(RcoefdfV2$rcoef_sigmoid[i] >= RcoefdfV2$rcoef_gaussian[i]){
+    classif <- "sigmoid"
+  }
+  else{
+    classif <- "gaussian"
+  }
+  
+  data.frame(classif = classif, id = i, juld = tmp$juld[1], depthmax = tmp$Zmax[1])
+})
+  
+#count profiles
+ngauss <- length(which(classifdf$classif == "gaussian"))/length(unique(profiledf$id))*100
+nsigmoid <- length(which(classifdf$classif == "sigmoid"))/length(unique(profiledf$id))*100
+nother <- length(which(classifdf$classif == "other"))/length(unique(profiledf$id))*100
+
+#gaussian profile (classified) before a new criteria elimination
+gaussprofiles <- classifdf[classifdf$classif == "gaussian",]
+  
+#remove profiles where depthmax (DCM) < 1m
+gaussprofiles <- gaussprofiles[gaussprofiles$depthmax > 1,]
+
+#Navarro critère 1 is back ! Remove DCM (from gaussian designated profiles) below 1m
+#actually, I think it would be interesting to remove DCM peut-être encore < 5m..
+#purement subjectif
+
+gaussprofiles <- transform(gaussprofiles,id=as.numeric(factor(juld)))
+
+#établir un autre critère pour virer les profils qui n'ont pas l'allure d'un DCM
+#du style : la valeur max de chloro se trouve au début du profil etc...
+# TROUVER UN TRUC POUR DISCRIMINER CES PROFILS QUI ONT PASSÉ LE TEST DE LA SIGMOIDE 
+# MALENCONTREUSEMENT
+ 
+#visu
+i <- 1
+tmp <- profiledf[profiledf$juld == gaussprofiles$juld[i],]
+depthindex <- which.min(tmp$depth <= 100)
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
+plot(y~x, data=tab, type="l", lwd = 2)
+i <- i +1
+#fusion density et depth R codes -> need the find the density associated to the depth DCM....
 
 
 #visualisation
-i <- 21
+i <- 414
 tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
 depthindex <- which.min(tmp$depth <= 100)
 tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
