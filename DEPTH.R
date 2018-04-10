@@ -381,6 +381,10 @@ depthindex <- which.min(tmp$depth <= 200)
 tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
 tab <- data.frame(x=tmp$depth,y=tmp$chla)
 plot(y~x, data=tab, type="l", main = i, xlab = "depth", ylab = "chla")
+depthindex <- which.min(tmp$depth <= 100)
+#tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
+tab <- data.frame(x=tmp$depth,y=tmp$chla)
+plot(y~x, data=tab, type="l", main = i)
 tmp2 <- approx(tab$x,tab$y, method="linear")
 #abline(v=seq(0,900,100) , col="grey" , lwd=0.6)
 lines(y~x, data=tmp2, type="l", col="red")
@@ -388,7 +392,7 @@ i <- i+1
 
 tested <- profiledf
 
-#save(tested,file="profiledfaftertests.Rda")
+# save(tested,file="profiledfaftertests.Rda")
 load("profiledfaftertests.Rda")
 
 #repasser le QC une seconde fois (regarder sur i = 166 pour voir -> car 
@@ -408,11 +412,16 @@ fsigmoid <- function(x, Fsurf, Zdemi, s){
   Fsurf*(1/(1+exp((Zdemi-x)*s)))
 }
 
+
 profilechiant <- tmp$juld[1]#id = 620 -> id = 649 avec les nouveau critères de sélections
 save(profilechiant,file="profilechiant.Rda")
+# profilechiant <- tmp$juld[1]#id = 648
+# save(profilechiant,file="profilechiant.Rda")
+load("profilechiant.Rda")
+
 
 gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
-# gaussiandf <- ldply(as.list(1:400), function(i){
+  # gaussiandf <- ldply(as.list(1:400), function(i){
   #i<-620
   tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
   #depthindex <- which.min(tmp$depth <= 80)
@@ -443,7 +452,7 @@ gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
                                                minFactor = 1/2048, warnOnly=T))
   
   
-   # i <- i+1
+  # i <- i+1
   # # v <- summary(res)$parameters[,"Estimate"]
   # # 
   data.frame(Fsurf = coef(res)["Fsurf"], Zdemi = coef(res)["Zdemi"],
@@ -466,7 +475,7 @@ gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   
   
 })
-
+   
 sigmoidf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   # sigmoidf <- ldply(as.list(250:600), function(i){
    # i<-164
@@ -554,7 +563,7 @@ sigmoidf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
 })
 
 #visualisation triplot
-i <- 1
+i <- 100
 tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
 depthindex <- which.min(tmp$depth <= 100)
 tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
