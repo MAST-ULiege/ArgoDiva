@@ -118,6 +118,7 @@ argodf<-ldply(as.list(filename),function(file){
              type            = "Argo")
 })
 
+
 #Assign a profile number according to the (unique due to two decimals) julian day 
 argodf <- transform(argodf,id=as.numeric(factor(juld)))
 #argodf <- transform(argodf,id=sort(as.numeric(factor(juld))))
@@ -218,6 +219,11 @@ for (i in 1:length(criteriadf$id)){
   argodf <- argodf[!(argodf$id == criteriadf$id[i]),]
 }
 
+#REMOVE 2013 ET 2018 (because not FULL year)
+argodf <- argodf[!argodf$year == 2013,]
+argodf <- argodf[!argodf$year == 2018,]
+
+
 #argodf <- subset(argodf, select=c("lon","lat","juld","depthmax"))
 argodf <- subset(argodf, select=c("lon","lat","depthmax"))
 #Remove NA's
@@ -242,6 +248,11 @@ write.table(argodf, file="ForDivaWEB.txt", sep=" ", na = "NA", dec = ".", eol = 
 for (i in 1:length(criteriadf$id)){
   profiledf <- profiledf[!(profiledf$id == criteriadf$id[i]),]
 }
+
+#remove profiles from 2013 and 2018
+profiledf <- profiledf[!profiledf$year == 2013,]
+profiledf <- profiledf[!profiledf$year == 2018,]
+
 
 ##new id before gaussian elimination
 profiledf <- transform(profiledf,id=as.numeric(factor(juld)))
@@ -364,12 +375,14 @@ for (i in 1:length(QCdf$id)){
 }
 
 #Graphe reconstruction
-i <- 56
+i <- 2
 tmp <- profiledf[profiledf$id==i,]
-depthindex <- which.min(tmp$depth <= 100)
+depthindex <- which.min(tmp$depth <= 200)
 tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
-plot(y~x, data=tab, type="l")
+tab <- data.frame(x=tmp$depth,y=tmp$chla)
+plot(y~x, data=tab, type="l", main = i, xlab = "depth", ylab = "chla")
 tmp2 <- approx(tab$x,tab$y, method="linear")
+#abline(v=seq(0,900,100) , col="grey" , lwd=0.6)
 lines(y~x, data=tmp2, type="l", col="red")
 i <- i+1
 
@@ -395,7 +408,7 @@ fsigmoid <- function(x, Fsurf, Zdemi, s){
   Fsurf*(1/(1+exp((Zdemi-x)*s)))
 }
 
-profilechiant <- tmp$juld[1]#id = 620
+profilechiant <- tmp$juld[1]#id = 620 -> id = 649 avec les nouveau critères de sélections
 save(profilechiant,file="profilechiant.Rda")
 
 gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
@@ -624,15 +637,18 @@ classifdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   
   if(RcoefdfV2$rcoef_sigmoid[i] & RcoefdfV2$rcoef_gaussian[i] < R_crit){
     classif <- "other"
+    score <- "NA"#on s'en fout de leur score
   } 
   else if(RcoefdfV2$rcoef_sigmoid[i] >= RcoefdfV2$rcoef_gaussian[i]){
     classif <- "sigmoid"
+    score <- RcoefdfV2$rcoef_sigmoid[i]
   }
   else{
     classif <- "gaussian"
+    score <- RcoefdfV2$rcoef_gaussian[i]
   }
   
-  data.frame(classif = classif, id = i, juld = tmp$juld[1], depthmax = tmp$Zmax[1])
+  data.frame(classif = classif, id = i, juld = tmp$juld[1], depthmax = tmp$Zmax[1], score = score)
 })
   
 #count profiles
@@ -656,13 +672,17 @@ gaussprofiles <- transform(gaussprofiles,id=as.numeric(factor(juld)))
 #du style : la valeur max de chloro se trouve au début du profil etc...
 # TROUVER UN TRUC POUR DISCRIMINER CES PROFILS QUI ONT PASSÉ LE TEST DE LA SIGMOIDE 
 # MALENCONTREUSEMENT
+testcount <- length(which(gaussprofiles$score < 0.975))#pas forcément le top mais bon ça permet
+# d'éliminer encore des profils que ne ressemblent pas trop à une gaussienne mais bien plus à une
+#sigmoïde
+
  
 #visu
-i <- 1
+i <- 200
 tmp <- profiledf[profiledf$juld == gaussprofiles$juld[i],]
 depthindex <- which.min(tmp$depth <= 100)
 tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
-plot(y~x, data=tab, type="l", lwd = 2)
+plot(y~x, data=tab, type="l", lwd = 2, main=gaussprofiles$score[i])
 i <- i +1
 #fusion density et depth R codes -> need the find the density associated to the depth DCM....
 
