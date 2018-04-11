@@ -637,6 +637,30 @@ i <- i+ 1
 
 ### DENSITY ANALYSIS ### -----------------
 
+var_average <- function(dfin){
+  dfin <- transform(dfin,id=as.numeric(factor(juld)))
+  
+  df <- ldply(as.list(1:length(unique(dfin$id))), function(i){
+    #i <- 1
+    tmp <- dfin[dfin$id == i,]
+    tmp <- tmp[order(tmp$depth),]
+    tmp2 <- aggregate(value ~ depth, data = tmp, FUN = mean)
+    #tmp <- match_df(tmp2, tmp, on="depth")
+    duplicate <- which(duplicated(tmp$depth))
+    if (length(duplicate) != 0){
+      tmp <- tmp[-duplicate,]
+    }
+    #tmp <- tmp[-duplicate,]
+    tmp$value <- tmp2$value
+    #clean (depth <0 without a QC = 4)
+    #we remove them because it can induce further issues when computing
+    #the potential density anomaly
+    tmp <- tmp[!tmp$depth < 0,]
+    i <- i + 1
+    data.frame(tmp)
+  })
+}
+
 #Fonction qui renvoie un data frame basé sur l'anomalie de densité verticale (y axis)
 ExtractDensity <- function(chladf, FloatInfo){
   
@@ -652,18 +676,41 @@ ExtractDensity <- function(chladf, FloatInfo){
     tempdf <- ExtractVar("TEMP",FloatInfo)
   }
   
-  tempdf <- tempdf[!tempdf$qc == 4,]
-  tempdf <- tempdf[!tempdf$qc == 3,]
+  # tempdf <- tempdf[!tempdf$qc == 4,]
+  # tempdf <- tempdf[!tempdf$qc == 3,]
+  
+  tempdf <- var_average(tempdf)
+  #instead of removing bad lines, put NA's ---> will impact graphics
+  setDT(tempdf, keep.rownames = TRUE)[]
+  bad_data <- as.numeric(tempdf[tempdf$qc == 4,]$rn)
+  tempdf$value[bad_data] <- NA
+  bad_data <- as.numeric(tempdf[tempdf$qc == 3,]$rn)
+  tempdf$value[bad_data] <- NA
+  
   
   psaldf <- ExtractVar("PSAL_ADJUSTED",FloatInfo)
   if (all(is.na(psaldf)) == TRUE) {
     psaldf <- ExtractVar("PSAL",FloatInfo)
   }
   
-  #Extract matching rows of a data frame
-  tempdf <- match_df(tempdf,chladf, on = c("depth", "juld"))
-  psaldf <- match_df(psaldf,chladf, on = c("depth", "juld"))
+  # psaldf <- psaldf[!psaldf$qc == 4,]
+  # psaldf <- psaldf[!psaldf$qc == 3,]
   
+  psaldf <- var_average(psaldf)
+  setDT(psaldf, keep.rownames = TRUE)[]
+  bad_data <- as.numeric(psaldf[psaldf$qc == 4,]$rn)
+  psaldf$value[bad_data] <- NA
+  bad_data <- as.numeric(psaldf[psaldf$qc == 3,]$rn)
+  psaldf$value[bad_data] <- NA
+  
+  #Extract matching rows temperature and salinity data frames
+  tempdf <- match_df(tempdf, psaldf, on = c("depth", "juld", "aprofile", "alevel"))
+  psaldf <- match_df(psaldf, tempdf, on = c("depth", "juld", "aprofile", "alevel"))
+  tempdf <- match_df(tempdf, chladf, on = c("depth", "juld"))
+  psaldf <- match_df(psaldf, chladf, on = c("depth", "juld"))
+  chladf <- match_df(chladf, psaldf, on = c("depth", "juld"))#135 lignes de plus que ce à quoi je m'attends...
+  #24101 pour tempdf et psaldf vs 24236 pour chladf et finaldf (voir après)
+
   #Sub data frames
   subtempdf <- subset(tempdf, select = c("value","depth","aprofile", "alevel","juld","lon","lat"))
   colnames(subtempdf)[which(colnames(subtempdf)=="value")]<-"TEMP"
@@ -678,7 +725,7 @@ ExtractDensity <- function(chladf, FloatInfo){
   colnames(joindf)[which(colnames(joindf)=="alevel")]<-"levelTEMP/PSAL"
   subchladf <- match_df(subchladf,joindf, on = c("depth", "juld"))
   finaldf <- join(subchladf,joindf, by = c("depth","juld"))
-  
+
   #use of gsw package
   #NEED CONVERSION OF PRACTICAL SALINITY TO ABSOLUTE SALINITY BEFORE USING THE FOLLOWING FUNCTION
   #NEED CONVERSION OF IN-SITU TEMPERATURE TO CONSERVATIVE TEMPERATURE
@@ -729,7 +776,12 @@ densityprofiledf<-ldply(as.list(filename),function(file){
     chladf <- ExtractVar("CHLA",FloatInfo)
   }
   
-  chladf <- chladf[!chladf$qc == 4,]
+  #chladf <- chladf[!chladf$qc == 4,]
+  
+  #instead of removing bad lines, put NA's ---> will impact graphics
+  setDT(chladf, keep.rownames = TRUE)[]
+  bad_data <- as.numeric(chladf[chladf$qc == 4,]$rn)
+  chladf$value[bad_data] <- NA
   
   #Extraction de l'anomalie de densité potentielle
   densitydf <- ExtractDensity(chladf, FloatInfo)
@@ -753,11 +805,12 @@ densityprofiledf<-ldply(as.list(filename),function(file){
 
 densityprofiledf_raw <- densityprofiledf
 
-#pour supprimer les doublons qui apparaissent... (note que l'on supprime peut-être trop.. à check)
+#pour supprimer les doublons qui apparaissent
 densityprofiledf <- unique(densityprofiledf)
 #Assign a profile number according to the (unique due to two decimals) julian day 
 densityprofiledf <- transform(densityprofiledf,id=as.numeric(factor(juld)))
 
+# obsolete now?
 # #éventuellement -> introduit un peu d'incertitude mais pas tant que cela
 # density_duplicate <- which(duplicated(densityprofiledf$density))
 # densityprofiledf <- densityprofiledf[-density_duplicate,]
