@@ -409,24 +409,25 @@ lines(x = tab$x, fgauss(x,gaussiandf$Fsurf[i], gaussiandf$Zdemi[i],
       col=4, add=T, xlim=range(tab$x), lwd = 2)
 i <- i + 1
 
-# #version en log base 10
+#version en log base 10
 # Rcoefdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
 #   tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
 #   depthindex <- which.min(tmp$depth <= 100)
 #   tab <- data.frame(x=tmp$depth[1:depthindex],y=log10(tmp$chla[1:depthindex]))
 #   x <- tab$x
-#   logsigmoid <- log10(fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
+#   sigmoid <- log10(fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
 #                                sigmoidf$s[i]))
-#   loggauss <- log10(fgauss(x,gaussiandf$Fsurf[i], gaussiandf$Zdemi[i],
+#   gauss <- log10(fgauss(x,gaussiandf$Fsurf[i], gaussiandf$Zdemi[i],
 #                            gaussiandf$Fmax[i], gaussiandf$Zmax[i], gaussiandf$dz[i]))
-#   # plot(y~x, data=tab, type="l", lwd = 2)
-#   # lines(x = tab$x, logsigmoid, col=2, add=T, xlim=range(tab$x), lwd = 2)
-#   # lines(x = tab$x, loggauss, col=4, add=T, xlim=range(tab$x), lwd = 2)
 #   
+#   plot(y~x, data=tab, type="l", lwd = 2)
+#   lines(x = tab$x, sigmoid, col=2, add=T, xlim=range(tab$x), lwd = 2)
+#   lines(x = tab$x, gauss, col=4, add=T, xlim=range(tab$x), lwd = 2)
+# 
 #   mean_data <- mean(tab$y, na.rm=T)
 #   ss_tot <- sum((tab$y - mean_data)^2, na.rm=T)
-#   ss_res_sigmoid <- sum((logsigmoid - tab$y)^2, na.rm = T)
-#   ss_res_gaussian <- sum((loggauss - tab$y)^2, na.rm = T)
+#   ss_res_sigmoid <- sum((sigmoid - tab$y)^2, na.rm = T)
+#   ss_res_gaussian <- sum((gauss - tab$y)^2, na.rm = T)
 #   rcoef_sigmoid <- 1-(ss_res_sigmoid/ss_tot)
 #   rcoef_gaussian <- 1-(ss_res_gaussian/ss_tot)
 #   data.frame(rcoef_sigmoid = rcoef_sigmoid, rcoef_gaussian = rcoef_gaussian)
@@ -613,8 +614,8 @@ rho_dcm_from_depth_dcm <- function(file, borne_inf, borne_sup){
   #i <- i + 1
   data.frame(rho_dcm = rho_anomaly, filename = gaussdata$file[i],
              lon = gaussdata$lon[i], lat = gaussdata$lat[i],
-             day = tmp$day[i], month = tmp$month[i], year = tmp$year[i],
-             DOY = tmp$DOY[i], juld = tmp$juld[i])
+             day = gaussdata$day[i], month = gaussdata$month[i], year = gaussdata$year[i],
+             DOY = gaussdata$DOY[i], juld = gaussdata$juld[i])
   })
 }
 
@@ -1140,4 +1141,54 @@ diva_DCM_rho <- diva_DCM_rho[complete.cases(diva_DCM_rho),]
 write.table(diva_DCM_rho, file="diva_DCM_rho.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
             row.names = FALSE, col.names = FALSE)
 
-#Some statistics on data for DIVAND --------------
+#Some statistics  --------------
+
+#Monthly repartition before gaussian profiles were retained
+ggplot(gaussiandf, aes(month)) + geom_histogram(binwidth = 0.5) + 
+  labs(title="All profiles [908]")
+
+#Monthly repartition after non gaussian profiles were eliminated
+ggplot(gaussdata, aes(month)) + geom_histogram(binwidth = 0.5) + 
+  labs(title="Only gaussian profiles [668]")
+
+#Introduction of seasons
+# "Nasty-code" from Arthur
+# Nasty code to get a user-defined season
+gaussdata_season <- ddply(gaussdata,~month, transform, season=1*(month %in% c(12,1,2))+
+                 2*(month %in% c(3,4,5 ))+
+                 3*(month %in% c(6,7,8 ))+
+                 4*(month %in% c(9,10,11 )))
+
+rho_dcm_season <- ddply(rho_dcm,~month, transform, season=1*(month %in% c(12,1,2))+
+                   2*(month %in% c(3,4,5 ))+
+                   3*(month %in% c(6,7,8 ))+
+                   4*(month %in% c(9,10,11 )))
+
+#Seasonal variability for depth and density, for each season compared to all data (all years)
+#Depth
+mean_depth_winter <- mean(gaussdata_season[gaussdata_season$season == 1,]$Zmax, na.rm = T)
+sd_depth_winter <- sd(gaussdata_season[gaussdata_season$season == 1,]$Zmax, na.rm = T)
+mean_depth_spring <- mean(gaussdata_season[gaussdata_season$season == 2,]$Zmax, na.rm = T)
+sd_depth_spring <- sd(gaussdata_season[gaussdata_season$season == 2,]$Zmax, na.rm = T)
+mean_depth_summer <- mean(gaussdata_season[gaussdata_season$season == 3,]$Zmax, na.rm = T)
+sd_depth_summer <- sd(gaussdata_season[gaussdata_season$season == 3,]$Zmax, na.rm = T)
+mean_depth_autumn <- mean(gaussdata_season[gaussdata_season$season == 4,]$Zmax, na.rm = T)
+sd_depth_autumn <- sd(gaussdata_season[gaussdata_season$season == 4,]$Zmax, na.rm = T)
+
+#Density anomaly
+mean_rho_winter <- mean(rho_dcm_season[rho_dcm_season$season == 1,]$rho_dcm, na.rm = T)
+sd_rho_winter <- sd(rho_dcm_season[rho_dcm_season$season == 1,]$rho_dcm, na.rm = T)
+mean_rho_spring <- mean(rho_dcm_season[rho_dcm_season$season == 2,]$rho_dcm, na.rm = T)
+sd_rho_spring <- sd(rho_dcm_season[rho_dcm_season$season == 2,]$rho_dcm, na.rm = T)
+mean_rho_summer <- mean(rho_dcm_season[rho_dcm_season$season == 3,]$rho_dcm, na.rm = T)
+sd_rho_summer <- sd(rho_dcm_season[rho_dcm_season$season == 3,]$rho_dcm, na.rm = T)
+mean_rho_autumn <- mean(rho_dcm_season[rho_dcm_season$season == 4,]$rho_dcm, na.rm = T)
+sd_rho_autumn <- sd(rho_dcm_season[rho_dcm_season$season == 4,]$rho_dcm, na.rm = T)
+
+#All years
+mean_depth_all <- mean(gaussdata$Zmax, na.rm =T)
+sd_depth_all <- sd(gaussdata$Zmax, na.rm =T)
+
+
+
+
