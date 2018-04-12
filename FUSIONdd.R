@@ -87,8 +87,8 @@ profiledf<-ldply(as.list(filename),function(file){
              month           = month.day.year(chladf$juld,c(1,1,1950))$month,
              year            = month.day.year(chladf$juld,c(1,1,1950))$year,
              DOY             = as.integer(strftime(as.Date(chladf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
-             #lon             = chladf$lon,
-             #lat             = chladf$lat,
+             lon             = chladf$lon,
+             lat             = chladf$lat,
              Platform        = as.numeric(unique(id)),
              type            = "Argo")
 })
@@ -288,7 +288,8 @@ gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   # # 
   data.frame(Fsurf = coef(res)["Fsurf"], Zdemi = coef(res)["Zdemi"],
              Fmax = coef(res)["Fmax"], Zmax = coef(res)["Zmax"], dz = coef(res)["dz"], id=i,
-             juld=tmp$juld[1], file=tmp$Platform[1])
+             juld=tmp$juld[1], file=tmp$Platform[1], lon = tmp$lon[1], lat = tmp$lat[1],
+             day = tmp$day[1], month = tmp$month[1], year = tmp$year[1], DOY = tmp$DOY[1])
   # # 
   # # 
   # depthindex <- which.min(tmp$depth <= 100)
@@ -382,7 +383,8 @@ sigmoidf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   # # v <- summary(res)$parameters[,"Estimate"]
   # # 
   data.frame(Fsurf = coef(res)["Fsurf"], Zdemi = coef(res)["Zdemi"], s=coef(res)["s"], id=i,
-             juld=tmp$juld[1], file=tmp$Platform[1])
+             juld=tmp$juld[1], file=tmp$Platform[1], lon = tmp$lon[1], lat = tmp$lat[1],
+             day = tmp$day[1], month = tmp$month[1], year = tmp$year[1], DOY = tmp$DOY[1])
   
   # depthindex <- which.min(tmp$depth <= 100)
   # tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
@@ -453,7 +455,8 @@ RcoefdfV2 <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   rcoef_gaussian <- 1-(ss_res_gaussian/ss_tot)
   #i <- i +1
   data.frame(rcoef_sigmoid = rcoef_sigmoid, rcoef_gaussian = rcoef_gaussian, id = tmp$id[1], juld = tmp$juld[1],
-             file = tmp$Platform[1])
+             file = tmp$Platform[1], lon = tmp$lon[1], lat = tmp$lat[1],
+             day = tmp$day[1], month = tmp$month[1], year = tmp$year[1], DOY = tmp$DOY[1])
 })
 
 ########## BIG QUESTION ##########
@@ -490,7 +493,8 @@ classifdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   }
   
   data.frame(classif = classif, id = i, juld = tmp$juld[1], file = tmp$file[1],
-             depthmax = tmp$Zmax[1], score = score)
+             depthmax = tmp$Zmax[1], score = score, lon = tmp$lon[1], lat = tmp$lat[1],
+             day = tmp$day[1], month = tmp$month[1], year = tmp$year[1], DOY = tmp$DOY[1])
 })
 
 #count profiles
@@ -523,7 +527,7 @@ gaussianprofdf <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
   tmp <- profiledf[profiledf$juld == gaussprofiles$juld[i],]
   data.frame(depth = tmp$depth, juld = tmp$juld, chla = tmp$chla, qc = tmp$qc,
              day = tmp$day, month = tmp$month, year = tmp$year, DOY = tmp$DOY,
-             Platform = tmp$Platform)
+             Platform = tmp$Platform, lon = tmp$lon, lat = tmp$lat)
 })
 
 gaussianprofdf <- transform(gaussianprofdf,id=as.numeric(factor(juld)))
@@ -531,8 +535,11 @@ gaussianprofdf <- transform(gaussianprofdf,id=as.numeric(factor(juld)))
 gaussdata <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
   tmp <- gaussiandf[gaussiandf$juld == gaussprofiles$juld[i],]
   data.frame(Fsurf = tmp$Fsurf, Zdemi = tmp$Zdemi, Fmax = tmp$Fmax,
-             Zmax = tmp$Zmax, dz = tmp$dz, juld = tmp$juld, file = tmp$file)
+             Zmax = tmp$Zmax, dz = tmp$dz, juld = tmp$juld, file = tmp$file,
+             lon = tmp$lon, lat = tmp$lat, day = tmp$day, month = tmp$month,
+             year = tmp$year, DOY = tmp$DOY)
 })
+
 
 gaussdata <- transform(gaussdata,id=as.numeric(factor(juld)))
 
@@ -604,7 +611,10 @@ rho_dcm_from_depth_dcm <- function(file, borne_inf, borne_sup){
   temp <- gsw_CT_from_t(psaltmp$value,temptmp$value,depth_dcm)
   rho_anomaly <- gsw_sigma0(psal,temp)
   #i <- i + 1
-  data.frame(rho_dcm = rho_anomaly, filename = gaussdata$file[i])
+  data.frame(rho_dcm = rho_anomaly, filename = gaussdata$file[i],
+             lon = gaussdata$lon[i], lat = gaussdata$lat[i],
+             day = tmp$day[i], month = tmp$month[i], year = tmp$year[i],
+             DOY = tmp$DOY[i], juld = tmp$juld[i])
   })
 }
 
@@ -797,8 +807,8 @@ densityprofiledf<-ldply(as.list(filename),function(file){
              month           = month.day.year(densitydf$juld,c(1,1,1950))$month,
              year            = month.day.year(densitydf$juld,c(1,1,1950))$year,
              DOY             = as.integer(strftime(as.Date(densitydf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
-             #lon             = chladf$lon,
-             #lat             = chladf$lat,
+             lon             = densitydf$lon,
+             lat             = densitydf$lat,
              Platform        = as.numeric(unique(id)),
              type            = "Argo")
 })
@@ -1114,3 +1124,20 @@ myMap <-get_map(location=bs, source="google", maptype = "satellite", crop=FALSE)
 ggmap(myMap) +
   geom_point(aes(x=lon, y=lat, color=factor(Platform)),
              data = argodf2, alpha = .8)
+
+
+#DIVAND files creation ------------------
+
+diva_DCM_depth <- subset(gaussdata, select=c("lon","lat","juld","Zmax"))
+#Remove NA's
+diva_DCM_depth <- diva_DCM_depth[complete.cases(diva_DCM_depth),]
+write.table(diva_DCM_depth, file="diva_DCM_depth.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+            row.names = FALSE, col.names = FALSE)
+
+diva_DCM_rho <- subset(rho_dcm, select=c("lon","lat","juld","rho_dcm"))
+#Remove NA's
+diva_DCM_rho <- diva_DCM_rho[complete.cases(diva_DCM_rho),]
+write.table(diva_DCM_rho, file="diva_DCM_rho.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+            row.names = FALSE, col.names = FALSE)
+
+#Some statistics on data for DIVAND --------------
