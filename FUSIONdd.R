@@ -1141,6 +1141,38 @@ diva_DCM_rho <- diva_DCM_rho[complete.cases(diva_DCM_rho),]
 write.table(diva_DCM_rho, file="diva_DCM_rho.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
             row.names = FALSE, col.names = FALSE)
 
+#2014
+tmp <- rho_dcm[rho_dcm$year == 2014,]
+diva_DCM_rho_2014 <- subset(tmp, select=c("lon","lat","juld","rho_dcm"))
+#Remove NA's
+diva_DCM_rho_2014 <- diva_DCM_rho_2014[complete.cases(diva_DCM_rho_2014),]
+write.table(diva_DCM_rho_2014, file="diva_DCM_rho_2014.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+            row.names = FALSE, col.names = FALSE)
+
+#2015
+tmp <- rho_dcm[rho_dcm$year == 2015,]
+diva_DCM_rho_2015 <- subset(tmp, select=c("lon","lat","juld","rho_dcm"))
+#Remove NA's
+diva_DCM_rho_2015 <- diva_DCM_rho_2015[complete.cases(diva_DCM_rho_2015),]
+write.table(diva_DCM_rho_2015, file="diva_DCM_rho_2015.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+            row.names = FALSE, col.names = FALSE)
+
+#2016
+tmp <- rho_dcm[rho_dcm$year == 2016,]
+diva_DCM_rho_2016 <- subset(tmp, select=c("lon","lat","juld","rho_dcm"))
+#Remove NA's
+diva_DCM_rho_2016 <- diva_DCM_rho_2016[complete.cases(diva_DCM_rho_2016),]
+write.table(diva_DCM_rho_2016, file="diva_DCM_rho_2016.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+            row.names = FALSE, col.names = FALSE)
+
+#2017
+tmp <- rho_dcm[rho_dcm$year == 2017,]
+diva_DCM_rho_2017 <- subset(tmp, select=c("lon","lat","juld","rho_dcm"))
+#Remove NA's
+diva_DCM_rho_2017 <- diva_DCM_rho_2017[complete.cases(diva_DCM_rho_2017),]
+write.table(diva_DCM_rho_2017, file="diva_DCM_rho_2017.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+            row.names = FALSE, col.names = FALSE)
+
 #Some statistics  --------------
 
 #Monthly repartition before gaussian profiles were retained
@@ -1188,7 +1220,23 @@ sd_rho_autumn <- sd(rho_dcm_season[rho_dcm_season$season == 4,]$rho_dcm, na.rm =
 #All years
 mean_depth_all <- mean(gaussdata$Zmax, na.rm =T)
 sd_depth_all <- sd(gaussdata$Zmax, na.rm =T)
+mean_rho_all <- mean(rho_dcm$rho_dcm, na.rm = T)
+sd_rho_all <- sd(rho_dcm$rho_dcm, na.rm = T)
 
+#Comparison between rho_max_MLD (from Luc) VS rho_max_ARGO [DCM] 
+#YEAR 2015
+mean_rho_2015 <- mean(rho_dcm[rho_dcm$year == 2015,]$rho_dcm, na.rm =T)
+sd_rho_2015 <- sd(rho_dcm[rho_dcm$year == 2015,]$rho_dcm, na.rm =T)
+
+#YEAR 2016
+mean_rho_2016 <- mean(rho_dcm[rho_dcm$year == 2016,]$rho_dcm, na.rm =T)
+sd_rho_2016 <- sd(rho_dcm[rho_dcm$year == 2016,]$rho_dcm, na.rm =T)
+
+mean_rho_2014 <- mean(rho_dcm[rho_dcm$year == 2014,]$rho_dcm, na.rm =T)
+sd_rho_2014 <- sd(rho_dcm[rho_dcm$year == 2014,]$rho_dcm, na.rm =T)
+
+mean_rho_2017 <- mean(rho_dcm[rho_dcm$year == 2017,]$rho_dcm, na.rm =T)
+sd_rho_2017 <- sd(rho_dcm[rho_dcm$year == 2017,]$rho_dcm, na.rm =T)
 
 
 
