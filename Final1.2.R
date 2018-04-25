@@ -1491,3 +1491,29 @@ ggplot(co_time_deployment, aes(x=depth, y=psal, color = factor(id), group=juld))
   geom_point() + 
   xlab("Depth (m)") + ylab("Salinity") +
   coord_flip() + scale_x_reverse()
+
+###############
+path = "/home/flo/R/TFE/tfe/6903240"
+new_float <- list.files(path = path, pattern="*.nc")
+
+#plus proche du déploiement disponible jusqu'ici...
+
+filetest <- new_float[6]
+
+#Opening the file in a open-only mode
+ncfile   <<- nc_open(filetest, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+
+juld     <- ncvar_get(ncfile,"JULD")
+pres     <- as.data.frame(ncvar_get(ncfile,"PRES"))
+lon      <- ncvar_get(ncfile,"LONGITUDE")
+lat      <- ncvar_get(ncfile,"LATITUDE")
+chla     <- as.data.frame(ncvar_get(ncfile,"CHLA_ADJUSTED"))
+chla     <- as.data.frame(ncvar_get(ncfile,"CHLA")) 
+ 
+bsdf <- cbind(chla,pres)
+colnames(bsdf) <- c("chla","depth")
+
+ggplot(bsdf, aes(x=depth, y=chla)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Chloro") +
+  coord_flip() + scale_x_reverse()
