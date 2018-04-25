@@ -893,7 +893,7 @@ perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar
 
 #same as DepthDataExtraction
 ggplot(perioddf, aes(x=density, y=chla, group=juld)) +
-  geom_line() + facet_grid(~group) +
+  geom_point() + facet_grid(~group) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
   ylim(0,4) + coord_flip() + scale_x_reverse()
 
@@ -904,6 +904,13 @@ ggplot(perioddf, aes(x=density, y=chla, group=juld)) +
 season_2017_rho <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2017,]
 ggplot(season_2017_rho, aes(x=density, y=chla, color=month, group=juld)) +
   geom_line() + facet_grid(~season) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_color_viridis() +  scale_x_reverse()
+
+season_2017_rho <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2017,]
+ggplot(season_2017_rho, aes(x=density, y=chla, color=month, group=juld)) +
+  geom_point() + facet_grid(~season) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
   ylim(0,4) +
   coord_flip() + scale_color_viridis() +  scale_x_reverse()
@@ -951,20 +958,20 @@ densitygaussianprofilesdf <- transform(densitygaussianprofilesdf,id=as.numeric(f
 ####
 
 ggplot(densitygaussianprofilesdf, aes(x=density, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~year) +
+  geom_point() + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
   ylim(0,4) +
   coord_flip() + scale_color_viridis() +  scale_x_reverse()
 
 ggplot(densitygaussianprofilesdf, aes(x=density, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~year) +
+  geom_point() + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
   ylim(0,4) +
   coord_flip() + scale_color_gradientn(colours = rainbow(5)) + scale_x_reverse()
 
 #for continuous scale
 ggplot(densitygaussianprofilesdf2, aes(x=density, y=chla, color=season, group=juld)) +
-  geom_line() + facet_grid(~year) +
+  geom_point() + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
   ylim(0,4) +
   coord_flip() + scale_color_viridis() + scale_x_reverse()
@@ -976,7 +983,7 @@ densitygaussianprofilesdf2$season[densitygaussianprofilesdf2$season == 3] <- "Su
 densitygaussianprofilesdf2$season[densitygaussianprofilesdf2$season == 4] <- "Autumn"
 
 ggplot(densitygaussianprofilesdf2, aes(x=density, y=chla, color=season, group=juld)) +
-  geom_line() + facet_grid(~year) +
+  geom_point(size = 0.2) + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
   ylim(0,4) +
   coord_flip() + scale_x_reverse()
@@ -1000,7 +1007,7 @@ densitygaussianprofilesdf2$month = factor(densitygaussianprofilesdf2$month, leve
                                                                                      'Jul','Aug','Sep','Oct','Nov','Dec'))
 
 ggplot(densitygaussianprofilesdf2, aes(x=density, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~year) +
+  geom_point() + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
   ylim(0,4) +
   coord_flip() + scale_x_reverse()
@@ -1008,6 +1015,12 @@ ggplot(densitygaussianprofilesdf2, aes(x=density, y=chla, color=month, group=jul
 #2017
 
 tmp <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2017,]
+
+ggplot(tmp, aes(x=density, y=chla, color=season, group=juld)) +
+  geom_point(size = 0.1) + facet_grid(~season) +
+  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  ylim(0,4) +
+  coord_flip() + scale_x_reverse()
 
 ggplot(tmp, aes(x=density, y=chla, color=season, group=juld)) +
   geom_line() + facet_grid(~season) +
@@ -1132,6 +1145,12 @@ perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar
 
 ggplot(perioddf, aes(x=depth, y=chla, group=juld)) +
   geom_line() + facet_grid(~group) +
+  xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
+  xlim(80, 0) +ylim(0,4) +
+  coord_flip() 
+
+ggplot(perioddf, aes(x=depth, y=chla, group=juld)) +
+  geom_point(size = 0.8) + facet_grid(~group) +
   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
   xlim(80, 0) +ylim(0,4) +
   coord_flip() 
@@ -1389,9 +1408,86 @@ ggplot(CHLA_profiles, aes(x=depth, y=CHLA, group=juld)) +
   coord_flip() + scale_x_reverse() + geom_hline(yintercept=0)
 
 # Database of profiles co-located in space and in time
+# LAUCH COORDINATES
+deployment_lon <- 28.88 #29 CTD
+deployment_lat <- 43.09 #43.10 CTD
+
+# carré de 0.1° de côté ~ 10 km de côté
+# Database of profiles co-located in space 
+
+#PAR RAPPORT À L'ENDROIT DU DÉPLOIEMENT
+co_space_deployment <- TS_profiles[TS_profiles$lat <= 43.2 & TS_profiles$lat >= 43
+                    & TS_profiles$lon <= 29.2 & TS_profiles$lon >= 29,]
+
+#remove rows containing NA's
+co_space_deployment <- co_space_deployment[complete.cases(co_space_deployment),]
+
+#remove duplicates
+co_space_deployment<- unique(co_space_deployment)
+
+ggplot(co_space_deployment, aes(x=depth, y=temp, color = id, group=juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Temperature (°C)") +
+  coord_flip() + scale_x_reverse()
+
+ggplot(co_space_deployment, aes(x=depth, y=temp, color = factor(id), group=juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Temperature (°C)") +
+  coord_flip() + scale_x_reverse()
+
+ggplot(co_space_deployment, aes(x=depth, y=psal, color = id, group=juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Salinity") +
+  coord_flip() + scale_x_reverse()
+
+ggplot(co_space_deployment, aes(x=depth, y=psal, color = factor(id), group=juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Salinity") +
+  coord_flip() + scale_x_reverse()
+
+#TS diagram
+ggplot(co_space_deployment, aes(x=psal, y=temp, color = factor(id), group=juld)) +
+  geom_point() + 
+  xlab("Salinity") + ylab("Temperature (°C)") +
+  coord_flip() + scale_x_reverse()
 
 
+# co_space_deployment <- TS_profiles[TS_profiles$lat <= 43.3 & TS_profiles$lat >= 42.9
+#                                    & TS_profiles$lon <= 29.4 & TS_profiles$lon >= 28.8,]
 
-# Database of profiles co-located in space
 
 # Database of profiles co-located in time
+
+co_time_deployment <- TS_profiles[TS_profiles$DOY <= 93 & 
+                                     TS_profiles$DOY >= 83,]
+
+#TS diagram
+ggplot(co_time_deployment, aes(x=psal, y=temp, color = id, group=juld)) +
+  geom_point() + 
+  xlab("Salinity") + ylab("Temperature (°C)") +
+  coord_flip() + scale_x_reverse()
+
+ggplot(co_time_deployment, aes(x=psal, y=temp, color = factor(id), group=juld)) +
+  geom_point() + 
+  xlab("Salinity") + ylab("Temperature (°C)") +
+  coord_flip() + scale_x_reverse()
+
+ggplot(co_time_deployment, aes(x=depth, y=temp, color = id, group=juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Temperature (°C)") +
+  coord_flip() + scale_x_reverse()
+
+ggplot(co_time_deployment, aes(x=depth, y=temp, color = factor(id), group=juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Temperature (°C)") +
+  coord_flip() + scale_x_reverse()
+
+ggplot(co_time_deployment, aes(x=depth, y=psal, color = id, group=juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Salinity") +
+  coord_flip() + scale_x_reverse()
+
+ggplot(co_time_deployment, aes(x=depth, y=psal, color = factor(id), group=juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Salinity") +
+  coord_flip() + scale_x_reverse()
