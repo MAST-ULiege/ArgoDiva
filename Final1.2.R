@@ -1372,15 +1372,19 @@ GET_PROFILES <- function(file, VAR_NAME){
 
 TEMP_profiles <- ldply(as.list(filename), function(file){
   temp <- GET_PROFILES(file,"TEMP")
-})colnames(TEMP_profiles)[3] <- "TEMP"
+})
+colnames(TEMP_profiles)[3] <- "temp"
+colnames(TEMP_profiles)[4] <- "qc_temp"
 
 PSAL_profiles <- ldply(as.list(filename), function(file){
   psal <- GET_PROFILES(file,"PSAL")
 })
-colnames(PSAL_profiles)[3] <- "PSAL"
+colnames(PSAL_profiles)[3] <- "psal"
+colnames(PSAL_profiles)[4] <- "qc_psal"
 
 TS_profiles <- TEMP_profiles
-TS_profiles$psal <- PSAL_profiles$PSAL
+TS_profiles$psal <- PSAL_profiles$psal
+TS_profiles$qc_psal <- PSAL_profiles$qc_psal
 
 TS_profiles <- transform(TS_profiles,id=as.numeric(factor(juld)))
 
@@ -1400,9 +1404,9 @@ ggplot(TS_profiles, aes(x=depth, y=psal, group=juld)) +
 CHLA_profiles <- ldply(as.list(filename), function(file){
   temp <- GET_PROFILES(file,"CHLA")
 })
-colnames(CHLA_profiles)[3] <- "CHLA"
+colnames(CHLA_profiles)[3] <- "chla"
 
-ggplot(CHLA_profiles, aes(x=depth, y=CHLA, group=juld)) +
+ggplot(CHLA_profiles, aes(x=depth, y=chla, group=juld)) +
   geom_line() + 
   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
   coord_flip() + scale_x_reverse() + geom_hline(yintercept=0)
@@ -1498,7 +1502,7 @@ new_float <- list.files(path = path, pattern="*.nc")
 
 #plus proche du déploiement disponible jusqu'ici...
 
-filetest <- new_float[6]
+filetest <- new_float[1]
 
 #Opening the file in a open-only mode
 ncfile   <<- nc_open(filetest, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
@@ -1507,13 +1511,116 @@ juld     <- ncvar_get(ncfile,"JULD")
 pres     <- as.data.frame(ncvar_get(ncfile,"PRES"))
 lon      <- ncvar_get(ncfile,"LONGITUDE")
 lat      <- ncvar_get(ncfile,"LATITUDE")
-chla     <- as.data.frame(ncvar_get(ncfile,"CHLA_ADJUSTED"))
+chla_adjusted     <- as.data.frame(ncvar_get(ncfile,"CHLA_ADJUSTED"))
 chla     <- as.data.frame(ncvar_get(ncfile,"CHLA")) 
+psal_adjusted     <- as.data.frame(ncvar_get(ncfile,"PSAL_ADJUSTED"))
+psal     <- as.data.frame(ncvar_get(ncfile,"PSAL"))
+temp_adjusted     <- as.data.frame(ncvar_get(ncfile,"TEMP_ADJUSTED"))
+temp     <- as.data.frame(ncvar_get(ncfile,"TEMP"))
+cdom_adjusted <- as.data.frame(ncvar_get(ncfile,"CDOM_ADJUSTED"))
+cdom <- as.data.frame(ncvar_get(ncfile,"CDOM"))
  
-bsdf <- cbind(chla,pres)
-colnames(bsdf) <- c("chla","depth")
+bsdf <- cbind(pres, chla_adjusted, chla, psal_adjusted, psal, 
+              temp_adjusted, temp, cdom_adjusted, cdom, juld)
+
+colnames(bsdf) <- c("depth","chla_adjusted","chla","psal_adjusted",
+                    "psal","temp_adjusted","temp","cdom_adjusted",
+                    "cdom", "juld")
+
+
+ggplot(bsdf, aes(x=depth, y=cdom_adjusted)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Temperature") +
+  coord_flip() + scale_x_reverse()
+
+#En attendant que le fichier soit sur le DAC tout beau tout clean
+#Essai de "clean" de données
+
+temp_index <- which(bsdf$temp > 10)
+psal_index <- which(bsdf$psal > 25)
+
+bsdf$temp[temp_index] <- NA
+bsdf$psal[psal_index] <- NA
+
+#repérage indice chla grâce au cdom (à l'air logique quand on 
+#analyse les chiffres)
+cdom_index <- which(bsdf$cdom_adjusted < 1)
+
+bsdf$cdom_adjusted[cdom_index] <- NA
+bsdf$chla[cdom_index] <- NA
 
 ggplot(bsdf, aes(x=depth, y=chla)) +
   geom_point() + 
   xlab("Depth (m)") + ylab("Chloro") +
   coord_flip() + scale_x_reverse()
+
+#################
+# Function who plots T and S from profiles chosen (either manually
+# or automatically)
+#
+
+ggplot(bsdf, aes(x=depth)) + 
+  geom_point(aes(y = temp, colour = "Temperature")) +
+  geom_point(aes(y = psal, colour = "Salinity")) + coord_flip() +
+  xlab("Depth (m)") + ylab("Temperature (°C)") + 
+  scale_x_reverse()
+
+bad_data <- which(co_space_deployment$qc_temp == 4 
+                  | co_space_deployment$qc_temp == 3)  
+co_space_deployment$temp[bad_data] <- NA
+
+trace <- subset(co_space_deployment[co_space_deployment$id == 173,], select = c("depth","temp"))
+
+ggplot(trace, aes(x=depth, y=temp)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Temperature") +
+  coord_flip() + scale_x_reverse() + geom_point(data = trace)
+
+############# SEARCH OF GOOD PROFILES IN 100KM AND APRIL-MARS ####
+
+#space
+search_launch <- TS_profiles[TS_profiles$lat <= 44 & TS_profiles$lat >= 42
+                                   & TS_profiles$lon <= 30.1 & TS_profiles$lon >= 28.1,]
+
+#time (AVRIL-MARS PAS DISPO...) --> février et mai.. 
+search_launch <- search_launch[search_launch$month == 2 |
+                                 search_launch$month == 5,]
+
+#REMOVE QC 3 AND 4
+bad_data <- which(search_launch$qc_temp == 4 
+                                     | search_launch$qc_temp ==3)
+search_launch$temp[bad_data] <- NA
+
+bad_data <- which(search_launch$qc_psal == 4 
+                  | search_launch$qc_psal ==3)
+search_launch$psal[bad_data] <- NA
+
+search_launch <- transform(search_launch,id=as.numeric(factor(juld)))
+
+i <- 2
+
+tmp <- search_launch[search_launch$id == i,]
+tmp <- subset(tmp, select = c("depth","temp", "psal","juld"))
+bsdf2 <- subset(bsdf, select = c("depth","temp","psal","juld"))
+compare <- rbind(tmp,bsdf2)
+
+ggplot(compare, aes(x=depth, y=temp, colour = juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Temperature") +
+  coord_flip() + scale_x_reverse() 
+
+ggplot(compare, aes(x=depth, y=psal, colour = juld)) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Salinity") +
+  coord_flip() + scale_x_reverse() 
+
+chla_test <- CHLA_profiles[CHLA_profiles$juld == tmp$juld[1],]
+chla_test <- subset(chla_test, select = c("depth","chla", "juld"))
+bsdf3 <- subset(bsdf, select = c("depth", "chla", "juld"))
+
+test <- rbind(chla_test, bsdf3)
+
+ggplot(test, aes(x=depth, y=chla, colour = factor(juld))) +
+  geom_point() + 
+  xlab("Depth (m)") + ylab("Chla") +
+  coord_flip() + scale_x_reverse() 
