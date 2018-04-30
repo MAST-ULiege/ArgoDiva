@@ -690,23 +690,6 @@ gaussianprofdf <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
 
 gaussianprofdf <- transform(gaussianprofdf,id=as.numeric(factor(juld)))
 
-#TEST HSC
-HSCdf <- ldply(as.list(1:length(unique(gaussianprofdf$juld))), function(i){
-  tmp <- gaussianprofdf[gaussianprofdf$id == i,]
-  a <- seq(from = 0, to = 100, by = 10)
-  result <- 1 #1 means presence of a HSC, 0 means the contrary
-  vec <- vector()
-  
-  for (j in 1:10){
-    vec[j] <- mean(tmp$fluo[which(tmp$depth >= a[j] & tmp$depth <= a[j+1])], na.rm = T)
-  }
-  
-  if(any(diff(vec) >= 10, na.rm = T)){
-    result <- 0 
-  }
-  data.frame(result = result)
-})
-
 
 gaussdata <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
   tmp <- gaussiandf[gaussiandf$juld == gaussprofiles$juld[i],]
@@ -716,22 +699,53 @@ gaussdata <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
              year = tmp$year, DOY = tmp$DOY)
 })
 
-
 gaussdata <- transform(gaussdata,id=as.numeric(factor(juld)))
 
 
+#TEST HSC (attention les valeurs ne sont pas correctes car il y a tjrs l'offset
+# mais la shape est strictement identique)
+HSCdf <- ldply(as.list(1:length(unique(gaussianprofdf$juld))), function(i){
+  tmp <- gaussianprofdf[gaussianprofdf$id == i,]
+  minval <- min(tmp$fluo, na.rm = T)
+  mindepth <- round(tmp$depth[which(tmp$fluo == minval)[1]])
+  
+  a <- seq(from = 0, to = A, by = 10)#to take into account the increase in depth
+  vec <- vector()
+  
+  for (j in 1:A){
+    vec[j] <- mean(tmp$fluo[which(tmp$depth >= a[j] & tmp$depth <= a[j+1])], na.rm = T)
+  }
+  
+  if(all(diff(vec) <= 0, na.rm = T)){
+    result <- "HSC"
+#  }else if(gaussdata$Fmax[i] >= 2*gaussdata$Fsurf[i]){
+   }else if(max(tmp$fluo, na.rm = T) >= 2*tmp$fluo[which(!is.na(tmp$fluo))[1]]){
+    result <- "DCM"
+  }else{
+    result <- "modified_DCM"
+  }
+  data.frame(result = result)
+})
+
 # GAUSSIAN VISU ONLY
-i <-512
+#i <- 30
+t1 <- which(HSCdf$result == "HSC")
+t2 <- which(HSCdf$result == "DCM")
+t3 <- which(HSCdf$result == "modified_DCM")
+
+j <- 1
+i <- t3[j]
 tmp <- profiledf[profiledf$juld == gaussprofiles$juld[i],]
 depthindex <- which.min(tmp$depth <= 100)
-off_fluo <- tmp$fluo_NPQ[which.min(tmp$fluo_NPQ[1:depthindex])]
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_NPQ[1:depthindex] - off_fluo)
+off_fluo <- tmp$fluo[which.min(tmp$fluo[1:depthindex])]
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
 x <- tab$x
-plot(y~x, data=tab, type="l", lwd = 2, main=gaussprofiles$score[i], sub = 'test')
-lines(x = tab$x, fgauss(x,gaussdata$Fsurf[i], gaussdata$Zdemi[i],
-                        gaussdata$Fmax[i], gaussdata$Zmax[i], gaussdata$dz[i]),
-      col=4, add=T, xlim=range(tab$x), lwd = 2)
-i <- i +1
+plot(y~x, data=tab, type="l", lwd = 2, main=i, sub = 'test')
+# lines(x = tab$x, fgauss(x,gaussdata$Fsurf[i], gaussdata$Zdemi[i],
+#                         gaussdata$Fmax[i], gaussdata$Zmax[i], gaussdata$dz[i]),
+#       col=4, add=T, xlim=range(tab$x), lwd = 2)
+#i <- i +1
+j <- j + 1
 
 #fusion density et depth R codes -> need the find the density associated to the depth DCM....
 
