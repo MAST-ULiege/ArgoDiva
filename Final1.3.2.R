@@ -84,12 +84,6 @@ profiledf <- ldply(as.list(filename),function(file){
                     lon=lon,
                     lat=lat)
   
-  ### Direct use of adjusted values if available =============> NOT ANYMORE
-  # chladf <- ExtractVar("CHLA_ADJUSTED",FloatInfo)
-  # if (all(is.na(chladf)) == TRUE) {
-  #   chladf <- ExtractVar("CHLA",FloatInfo)
-  # }
-  
   chladf <- ExtractVar("CHLA",FloatInfo)
   
   # CHLA = (FLUO_CHLA - DARK_CHLA) * SCALE_CHLA
@@ -114,7 +108,7 @@ profiledf <- ldply(as.list(filename),function(file){
   #Construction du data frame final a lieu ici
   data.frame(depth    = chladf$depth,
              juld     = chladf$juld,
-             chla     = chladf$value,
+             fluo     = chladf$value,
              qc       = chladf$qc,
              day      = month.day.year(chladf$juld,c(1,1,1950))$day,
              month    = month.day.year(chladf$juld,c(1,1,1950))$month,
@@ -132,7 +126,10 @@ profiledf_raw <- transform(profiledf_raw,id=as.numeric(factor(juld)))
 
 #Remove bad data 
 bad_data <- which(profiledf$qc == 4)
-profiledf$chla[bad_data] <- NA
+profiledf$fluo[bad_data] <- NA
+
+#Test median filter
+#mav <- function(x, n=7){filter(x, rep(1/n,n), sides=2)}
 
 #Set profiles id
 profiledf <- transform(profiledf,id=as.numeric(factor(juld)))
@@ -176,13 +173,13 @@ argodf<-ldply(as.list(filename),function(file){
   
   #Chla subset df et final df
   subchladf <- subset(chladf,select=c("depth","juld","value","qc","lon","lat"))
-  colnames(subchladf)[which(colnames(subchladf)=="value")]<-"CHLA"
+  colnames(subchladf)[which(colnames(subchladf)=="value")]<-"FLUO"
   
   chladf <- ddply(subchladf,~juld,summarize,
-                  qc = qc[which.max(CHLA)],
-                  depthmax = depth[which.max(CHLA)],
-                  maxvalue = CHLA[which.max(CHLA)],
-                  integration = sum(CHLA),
+                  qc = qc[which.max(FLUO)],
+                  depthmax = depth[which.max(FLUO)],
+                  maxvalue = FLUO[which.max(FLUO)],
+                  integration = sum(FLUO),
                   bottomdepth = max(depth),
                   lon=mean(lon),
                   lat=mean(lat))#mean car la bouée a bougé sur la journée ?
@@ -211,7 +208,7 @@ argodf<-ldply(as.list(filename),function(file){
 argodf <- transform(argodf,id=as.numeric(factor(juld)))
 
 #Get profiles id that do not answer to some criteria
-crit1 <- argodf[(argodf$bottom < 100),]#Remove profiles too shallow 
+crit1 <- argodf[(argodf$bottom < 100),]#Remove profiles too shallow -> 2013 anyway et celui de 2015 sera viré sar stuck
 crit2 <- argodf[(argodf$depthmax >= 100),]#NLS is performed on the first 100m (max > 100m should not happen anyway)
 crit3 <- argodf[(argodf$depthmax == argodf$bottom),]#'Stuck' profiles (all values at the same depth), NOTE: Ils ne sont pas à QC = 4? Weird
 criteriadf <- rbind(crit1, crit2, crit3)
@@ -239,9 +236,6 @@ for (i in 1:length(criteriadf$id)){
 #remove profiles from 2013 and 2018
 profiledf <- profiledf[!profiledf$year == 2013,]
 profiledf <- profiledf[!profiledf$year == 2018,]
-
-#remove profiles from 2014 as well?
-
 
 ##new id before gaussian elimination
 profiledf <- transform(profiledf,id=as.numeric(factor(juld)))
@@ -275,6 +269,8 @@ densitydf<-ldply(as.list(filename),function(file){
   
   bad_data <- which(tempdf$qc == 4)
   tempdf$value[bad_data] <- NA
+  bad_data <- which(tempdf$qc == 3)
+  tempdf$value[bad_data] <- NA
   
   psaldf <- ExtractVar("PSAL_ADJUSTED",FloatInfo)
   if (all(is.na(psaldf)) == TRUE) {
@@ -282,6 +278,8 @@ densitydf<-ldply(as.list(filename),function(file){
   }
   
   bad_data <- which(psaldf$qc == 4)
+  psaldf$value[bad_data] <- NA
+  bad_data <- which(psaldf$qc == 3)
   psaldf$value[bad_data] <- NA
   
   psal <- gsw_SA_from_SP(psaldf$value,psaldf$depth,psaldf$lon,psaldf$lat)
@@ -312,8 +310,9 @@ densitydf <- densitydf[!densitydf$year == 2018,]
 
 densitydf <- transform(densitydf,id=as.numeric(factor(juld)))
 
-MLDdf <- ldply(as.list(1:length(unique(densitydf$id))), function(i){
-  tmp <- densitydf[densitydf$id == i,]
+MLDdf <- ldply(as.list(1:length(unique(densitydf$id))), function(i){#le compiler plusieurs fois à la main puis le global fonctionne...... WHY??????
+# MLDdf <- ldply(as.list(750:839), function(i){
+    tmp <- densitydf[densitydf$id == i,]
   
   if(length(tmp$density_anomaly[!is.na(tmp$density_anomaly)==TRUE])>=2) {
     if (min(tmp$depth > 10)){
@@ -327,6 +326,12 @@ MLDdf <- ldply(as.list(1:length(unique(densitydf$id))), function(i){
     if (is.na(rho_surf)==FALSE) {
       MLD <- max(tmp$depth[tmp$density_anomaly <= (rho_surf + 0.03)],na.rm = T)
     }
+  }else if(length(tmp$density_anomaly[!is.na(tmp$density_anomaly)==TRUE])==0){
+    rho_surf <- NA
+    MLD <- NA
+  }else{
+    rho_surf <- NA
+    MLD <- NA
   }
   
   data.frame(rho_surf = rho_surf, MLD = MLD, juld = tmp$juld[1], day = month.day.year(tmp$juld[1],c(1,1,1950))$day,
@@ -334,16 +339,31 @@ MLDdf <- ldply(as.list(1:length(unique(densitydf$id))), function(i){
              year = month.day.year(tmp$juld[1],c(1,1,1950))$year,
              DOY = as.integer(strftime(as.Date(tmp$juld[1],origin = '1950-01-01'), 
                                        format ="%j")))#Day Of Year
-})
+  # i <- i + 1
 
+  })
+
+saveMLDdf <- MLDdf
+MLDdf <- transform(MLDdf,id=as.numeric(factor(juld)))
+
+#remove profiles for which rho_surf ou MLD == NA
+# TO DO? -> au pire, pas de correction de quenching -> FAUX DCM?
+remove_uncertain_profiles <- which(is.na(MLDdf$rho_surf))
+for (i in 1:length(remove_uncertain_profiles)){
+profiledf <- profiledf[!(profiledf$id == remove_uncertain_profiles[i]),]
+MLDdf <- MLDdf[!(MLDdf$id == remove_uncertain_profiles[i]),]
+}
+
+profiledf <- transform(profiledf,id=as.numeric(factor(juld)))
+MLDdf <- transform(MLDdf,id=as.numeric(factor(juld)))
 
 NPQcorrection<- function(MLD, tmp) {
   
-  f <- tmp$chla[!is.na(tmp$chla) & tmp$depth <= MLD]
-  d <- tmp$depth[!is.na(tmp$chla) & tmp$depth <= MLD]
+  f <- tmp$fluo[!is.na(tmp$fluo) & tmp$depth <= MLD]
+  d <- tmp$depth[!is.na(tmp$fluo) & tmp$depth <= MLD]
   zMax <- d[which.max(f)]
   Max <- max(f)
-  Corfluo <- tmp$chla
+  Corfluo <- tmp$fluo
   
   if(min(f[d<zMax])<(0.9*Max)) {#find the justification for this -> cela veut dire qu'il n'y a probablement pas de NPQ
     Corfluo[tmp$depth<zMax] <- Max
@@ -352,55 +372,28 @@ NPQcorrection<- function(MLD, tmp) {
   return(Corfluo)
 }
 
-fluo_corrected <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
+fluo_adjusted <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   tmp <- profiledf[profiledf$id == i,]
   MLD <- MLDdf$MLD[i]
-  fluo_corrected <- NPQcorrection(MLD, tmp)
+  fluo_adjusted <- NPQcorrection(MLD, tmp)
   
-  data.frame(fluo_NPQ = fluo_corrected, id = i)  
+  data.frame(fluo_adjusted = fluo_adjusted, id = i)  
 })
 
 profiledf <- profiledf[order(profiledf$id),] 
-profiledf <- cbind(profiledf, fluo_corrected)
+profiledf <- cbind(profiledf, fluo_adjusted)
 
 
-i <- 127
+i <-65
 tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
 depthindex <- which.min(tmp$depth <= 100)
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
 x <- tab$x
-tab2 <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_NPQ[1:depthindex])
+tab2 <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_adjusted[1:depthindex])
 plot(y~x, data=tab, type="l", lwd = 2)
 lines(x = tab2$x, tab2$y,col=2, add=T, xlim=range(tab2$x), lwd = 2)
-
 i <- i + 1
-##### REMOVE MONTHS 10 to 1 ####
 
-# test <- profiledf
-# test <- test[!test$month == 10,]
-# test <- test[!test$month == 11,]
-# test <- test[!test$month == 12,]
-# test <- test[!test$month == 1,]
-# profiledf <- test
-# profiledf <- transform(profiledf,id=as.numeric(factor(juld)))
-
-##### Chloro QC test #################
-#////////!!!!!!!!!!!!!!!!!!\\\\\\\\\
-#Rajouter un NPQ test? See Xing 2012. ====> NOPE
-
-### VISU ###
-i <- 1
-tmp <- profiledf[profiledf$id==i,]
-depthindex <- which.min(tmp$depth <= 100)
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
-plot(y~x, data=tab, type="l")
-
-tmp2 <- save[save$id ==i,]
-depthindex2 <- which.min(tmp2$depth <= 100)
-tab2 <- data.frame(x=tmp2$depth[1:depthindex],y=tmp2$chla[1:depthindex])
-plot(y~x, data=tab2, type="l")
-
-# i <- i + 1
 
 #Graphe reconstruction
 # i <- 166
@@ -428,21 +421,26 @@ fsigmoid <- function(x, Fsurf, Zdemi, s){
 }
 
 gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
-
+  #gaussiandf <- ldply(as.list(176:185), function(i){
+    
   tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
+  
   depthindex <- which.min(tmp$depth <= 100)
-  off_fluo <- tmp$fluo_NPQ[which.min(tmp$fluo_NPQ[1:depthindex])]
-  tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_NPQ[1:depthindex]-off_fluo)
-  maxindex <- which.max(tmp$fluo_NPQ)
+  off_fluo <- tmp$fluo_adjusted[which.min(tmp$fluo_adjusted[1:depthindex])]
+  tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_adjusted[1:depthindex]-off_fluo)
+  maxindex <- which.max(tmp$fluo_adjusted)
   #Parameters estimation
-  nonNAindex <- which(!is.na(tmp$fluo_NPQ))
+  nonNAindex <- which(!is.na(tmp$fluo_adjusted))
   firstnonNA <- nonNAindex[1]
-  Fsurf <- tmp$fluo_NPQ[firstnonNA]
-  Zmax<- tmp$depth[maxindex]
-  Fmax <- tmp$fluo_NPQ[maxindex]
-  Zdemi <- tmp$depth[which(tmp$fluo_NPQ <= Fsurf/2)[1]]
+  Fsurf <- tmp$fluo_adjusted[firstnonNA]
+  Zmax <- tmp$depth[maxindex]
+  if(Zmax > 100){
+    Zmax <- 50
+  }
+  Fmax <- tmp$fluo_adjusted[maxindex]
+  Zdemi <- tmp$depth[which(tmp$fluo_adjusted <= Fsurf/2)[2]]
   if(is.na(Zdemi)){#code à la bourrain
-    indexZ <- which(tmp$fluo_NPQ < Fsurf)
+    indexZ <- which(tmp$fluo_adjusted < Fsurf)
     Zdemi <- tmp$depth[indexZ[which.max(indexZ > maxindex)]]
   }
   dz <- 15
@@ -452,6 +450,7 @@ gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
                data=tab, control = nls.control(maxiter=1000,
                                                minFactor = 1/2048, warnOnly=T)),
                error=function(e) e)
+
   
   if(inherits(res, "error")){
     dz <- 10
@@ -480,6 +479,8 @@ gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
                     error=function(e) e)
   }
   
+
+  
   data.frame(Fsurf = coef(res)["Fsurf"], Zdemi = coef(res)["Zdemi"],
              Fmax = coef(res)["Fmax"], Zmax = coef(res)["Zmax"], dz = coef(res)["dz"], id=i,
              juld=tmp$juld[1], file=tmp$Platform[1], lon = tmp$lon[1], lat = tmp$lat[1],
@@ -490,16 +491,16 @@ gaussiandf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
 sigmoidf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
   depthindex <- which.min(tmp$depth <= 100)
-  off_fluo <- tmp$fluo_NPQ[which.min(tmp$fluo_NPQ[1:depthindex])]
-  tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_NPQ[1:depthindex]-off_fluo)
-  maxindex <- which.max(tmp$fluo_NPQ)
+  off_fluo <- tmp$fluo_adjusted[which.min(tmp$fluo_adjusted[1:depthindex])]
+  tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_adjusted[1:depthindex]-off_fluo)
+  maxindex <- which.max(tmp$fluo_adjusted)
   #Parameters estimation
-  nonNAindex <- which(!is.na(tmp$fluo_NPQ))
+  nonNAindex <- which(!is.na(tmp$fluo_adjusted))
   firstnonNA <- nonNAindex[1]
-  Fsurf <- tmp$fluo_NPQ[firstnonNA]
-  Zdemi <- tmp$depth[which(tmp$fluo_NPQ <= Fsurf/2)[1]]
+  Fsurf <- tmp$fluo_adjusted[firstnonNA]
+  Zdemi <- tmp$depth[which(tmp$fluo_adjusted <= Fsurf/2)[1]]
   if(is.na(Zdemi)){
-    indexZ <- which(tmp$fluo_NPQ < Fsurf)
+    indexZ <- which(tmp$fluo_adjusted < Fsurf)
     Zdemi <- tmp$depth[indexZ[which.max(indexZ > maxindex)]]
   }
   i1 <- which.min(tmp$depth <= Zdemi - 5)
@@ -508,7 +509,7 @@ sigmoidf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   d2 <- tmp$depth[i2]
   s <- -(Fsurf/2)/(d2-d1)
   
-  if (!(Fsurf > 3*tmp$fluo_NPQ[length(tmp$fluo_NPQ)])){
+  if (!(Fsurf > 3*tmp$fluo_adjusted[length(tmp$fluo_adjusted)])){
     s <- -2.5
   }
   
@@ -553,11 +554,11 @@ sigmoidf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
 })
 
 #visualisation triplot
-i <- 525
+i <- 2
 tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
 depthindex <- which.min(tmp$depth <= 100)
-off_fluo <- tmp$fluo_NPQ[which.min(tmp$fluo_NPQ[1:depthindex])]
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_NPQ[1:depthindex]-off_fluo)
+off_fluo <- tmp$fluo_adjusted[which.min(tmp$fluo_adjusted[1:depthindex])]
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_adjusted[1:depthindex]-off_fluo)
 x <- tab$x
 plot(y~x, data=tab, type="l", lwd = 2)
 lines(x = tab$x, fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
@@ -567,37 +568,12 @@ lines(x = tab$x, fgauss(x,gaussiandf$Fsurf[i], gaussiandf$Zdemi[i],
       col=4, add=T, xlim=range(tab$x), lwd = 2)
 i <- i + 1
 
-# #version en log base 10
-# Rcoefdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
-#   tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
-#   depthindex <- which.min(tmp$depth <= 100)
-#   tab <- data.frame(x=tmp$depth[1:depthindex],y=log10(tmp$fluo_NPQ[1:depthindex]))
-#   x <- tab$x
-#   sigmoid <- log10(fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
-#                                sigmoidf$s[i]))
-#   gauss <- log10(fgauss(x,gaussiandf$Fsurf[i], gaussiandf$Zdemi[i],
-#                            gaussiandf$Fmax[i], gaussiandf$Zmax[i], gaussiandf$dz[i]))
-# 
-#   # plot(y~x, data=tab, type="l", lwd = 2)
-#   # lines(x = tab$x, sigmoid, col=2, add=T, xlim=range(tab$x), lwd = 2)
-#   # lines(x = tab$x, gauss, col=4, add=T, xlim=range(tab$x), lwd = 2)
-# 
-#   mean_data <- mean(tab$y, na.rm=T)
-#   ss_tot <- sum((tab$y - mean_data)^2, na.rm=T)
-#   ss_res_sigmoid <- sum((sigmoid - tab$y)^2, na.rm = T)
-#   ss_res_gaussian <- sum((gauss - tab$y)^2, na.rm = T)
-#   rcoef_sigmoid <- 1-(ss_res_sigmoid/ss_tot)
-#   rcoef_gaussian <- 1-(ss_res_gaussian/ss_tot)
-#   data.frame(rcoef_sigmoid = rcoef_sigmoid, rcoef_gaussian = rcoef_gaussian)
-# })
-
-#version NON log 10
-RcoefdfV2 <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
-  #i <- 1
+#Coefficient of determination
+Rcoefdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
   depthindex <- which.min(tmp$depth <= 100)
-  off_fluo <- tmp$fluo_NPQ[which.min(tmp$fluo_NPQ[1:depthindex])]
-  tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_NPQ[1:depthindex]-off_fluo)
+  off_fluo <- tmp$fluo_adjusted[which.min(tmp$fluo_adjusted[1:depthindex])]
+  tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_adjusted[1:depthindex]-off_fluo)
   x <- tab$x
   sigmoid <- fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
                       sigmoidf$s[i])
@@ -611,22 +587,10 @@ RcoefdfV2 <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   ss_res_gaussian <- sum((gauss - tab$y)^2, na.rm = T)
   rcoef_sigmoid <- 1-(ss_res_sigmoid/ss_tot)
   rcoef_gaussian <- 1-(ss_res_gaussian/ss_tot)
-  #i <- i +1
   data.frame(rcoef_sigmoid = rcoef_sigmoid, rcoef_gaussian = rcoef_gaussian, id = tmp$id[1], juld = tmp$juld[1],
              file = tmp$Platform[1], lon = tmp$lon[1], lat = tmp$lat[1],
              day = tmp$day[1], month = tmp$month[1], year = tmp$year[1], DOY = tmp$DOY[1])
 })
-
-########## BIG QUESTION ##########
-
-#Pour le moment je fais un fit sur les premiers 100 m car je fais l'hypothèse que l'on est en
-#bonne approximation à 0 pour la [chloro] jusqu'à 100.
-#Après... si on fais le QC regional test et qu'on règle les profils de chloro de la black sea
-#on pourrait le faire sur l'entièreté des profils.. MAIS est-ce que cela vaut le coup? 
-#ÇA FERAIT DES REPORTS DANS LES DATES, ÇA M'ARRANGE PAS, IL SERAIT PLUS SAGE DE PROUVER QUE C'EST
-#UNE BONNE HYPOTHÈSE LES PREMIERS 100M.
-
-##################################
 
 #classification des profiles
 
@@ -634,20 +598,19 @@ R_crit <- 0.8 #80% de variance expliquée (Navarro c'était 90%)
 
 classifdf <- ldply(as.list(1:length(unique(profiledf$id))), function(i){
   
-  #tmp <- profiledf[profiledf$id==i,]
   tmp <- gaussiandf[gaussiandf$id==i,]
   
-  if(RcoefdfV2$rcoef_sigmoid[i] & RcoefdfV2$rcoef_gaussian[i] < R_crit){
+  if(Rcoefdf$rcoef_sigmoid[i] & Rcoefdf$rcoef_gaussian[i] < R_crit){
     classif <- "other"
-    score <- "NA"#on s'en fout de leur score
+    score <- "NA"#
   } 
-  else if(RcoefdfV2$rcoef_sigmoid[i] >= RcoefdfV2$rcoef_gaussian[i]){
+  else if(Rcoefdf$rcoef_sigmoid[i] >= Rcoefdf$rcoef_gaussian[i]){
     classif <- "sigmoid"
-    score <- RcoefdfV2$rcoef_sigmoid[i]
+    score <- Rcoefdf$rcoef_sigmoid[i]
   }
   else{
     classif <- "gaussian"
-    score <- RcoefdfV2$rcoef_gaussian[i]
+    score <- Rcoefdf$rcoef_gaussian[i]
   }
   
   data.frame(classif = classif, id = i, juld = tmp$juld[1], file = tmp$file[1],
@@ -672,85 +635,100 @@ gaussprofiles <- gaussprofiles[gaussprofiles$depthmax > 1,]
 
 gaussprofiles <- transform(gaussprofiles,id=as.numeric(factor(juld)))
 
-#établir un autre critère pour virer les profils qui n'ont pas l'allure d'un DCM
-#du style : la valeur max de chloro se trouve au début du profil etc...
-# TROUVER UN TRUC POUR DISCRIMINER CES PROFILS QUI ONT PASSÉ LE TEST DE LA SIGMOIDE 
-# MALENCONTREUSEMENT
-testcount <- length(which(gaussprofiles$score < 0.975))#pas forcément le top mais bon ça permet
-# d'éliminer encore des profils que ne ressemblent pas trop à une gaussienne mais bien plus à une
-#sigmoïde
+#NOW FLUO IS REFERRED TO ADJUSTED FLUO (PART 1 IS DONE)
 
-#get gaussian 'only' profiles
+#get pseudo gaussian profiles
 gaussianprofdf <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
   tmp <- profiledf[profiledf$juld == gaussprofiles$juld[i],]
-  data.frame(depth = tmp$depth, juld = tmp$juld, fluo = tmp$fluo_NPQ, qc = tmp$qc,
+  data.frame(depth = tmp$depth, juld = tmp$juld, fluo = tmp$fluo_adjusted, qc = tmp$qc,
              day = tmp$day, month = tmp$month, year = tmp$year, DOY = tmp$DOY,
              Platform = tmp$Platform, lon = tmp$lon, lat = tmp$lat)
 })
 
 gaussianprofdf <- transform(gaussianprofdf,id=as.numeric(factor(juld)))
 
-
 gaussdata <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
   tmp <- gaussiandf[gaussiandf$juld == gaussprofiles$juld[i],]
+  tmp2 <- MLDdf[MLDdf$juld == gaussprofiles$juld[i],]
   data.frame(Fsurf = tmp$Fsurf, Zdemi = tmp$Zdemi, Fmax = tmp$Fmax,
              Zmax = tmp$Zmax, dz = tmp$dz, juld = tmp$juld, file = tmp$file,
              lon = tmp$lon, lat = tmp$lat, day = tmp$day, month = tmp$month,
-             year = tmp$year, DOY = tmp$DOY)
+             year = tmp$year, DOY = tmp$DOY, MLD = tmp2$MLD)
 })
 
 gaussdata <- transform(gaussdata,id=as.numeric(factor(juld)))
 
+#reorder and sort by filename
+#gaussdata <- gaussdata[order(gaussdata$file),]
 
-#TEST HSC (attention les valeurs ne sont pas correctes car il y a tjrs l'offset
-# mais la shape est strictement identique)
+#SHAPE TEST FROM LAVIGNE 2015
 HSCdf <- ldply(as.list(1:length(unique(gaussianprofdf$juld))), function(i){
+    
   tmp <- gaussianprofdf[gaussianprofdf$id == i,]
+
+  check_visu <- c(7,20,25,60,69,70,75,82,131,180,197,201,203,204,343,359,360,
+                  361,364,369,371,373,379,390,514,515)
   minval <- min(tmp$fluo, na.rm = T)
   mindepth <- round(tmp$depth[which(tmp$fluo == minval)[1]])
-  
-  a <- seq(from = 0, to = A, by = 10)#to take into account the increase in depth
+  a <- seq(from = 0, to = mindepth, by = 10)#to take into account the increase in depth
   vec <- vector()
+  NonNAindex <- min(which(!is.na(tmp$fluo)))
   
-  for (j in 1:A){
+  for (j in 1:a[length(a)]/10){
     vec[j] <- mean(tmp$fluo[which(tmp$depth >= a[j] & tmp$depth <= a[j+1])], na.rm = T)
   }
-  
   if(all(diff(vec) <= 0, na.rm = T)){
     result <- "HSC"
-#  }else if(gaussdata$Fmax[i] >= 2*gaussdata$Fsurf[i]){
    }else if(max(tmp$fluo, na.rm = T) >= 2*tmp$fluo[which(!is.na(tmp$fluo))[1]]){
     result <- "DCM"
-  }else{
-    result <- "modified_DCM"
+  }else if(max(tmp$fluo, na.rm = T) == tmp$fluo[NonNAindex]){
+    result <- "HSC"
+  }else if(i %in% check_visu ){
+    result <- "Other"
+  }else if(!(i %in% check_visu)){
+    result <- "Modified_DCM"
   }
-  data.frame(result = result)
+
+  data.frame(Category = result, juld = tmp$juld[1], file = tmp$Platform[1])
 })
+
+HSCdf <- transform(HSCdf,id=as.numeric(factor(juld)))
+
 
 # GAUSSIAN VISU ONLY
 #i <- 30
-t1 <- which(HSCdf$result == "HSC")
-t2 <- which(HSCdf$result == "DCM")
-t3 <- which(HSCdf$result == "modified_DCM")
+t1 <- which(HSCdf$Category == "HSC")
+t2 <- which(HSCdf$Category == "DCM")
+t3 <- which(HSCdf$Category == "Modified_DCM")
+t4 <- which(HSCdf$Category == "Other")
+
+
+#VISU analysis of Modified_DCM
+#10% of profiles were considered as non modified_DCM
 
 j <- 1
-i <- t3[j]
+i <- t4[j]
 tmp <- profiledf[profiledf$juld == gaussprofiles$juld[i],]
 depthindex <- which.min(tmp$depth <= 100)
-off_fluo <- tmp$fluo[which.min(tmp$fluo[1:depthindex])]
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
+off_fluo <- tmp$fluo_adjusted[which.min(tmp$fluo_adjusted[1:depthindex])]
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_adjusted[1:depthindex])
 x <- tab$x
 plot(y~x, data=tab, type="l", lwd = 2, main=i, sub = 'test')
-# lines(x = tab$x, fgauss(x,gaussdata$Fsurf[i], gaussdata$Zdemi[i],
-#                         gaussdata$Fmax[i], gaussdata$Zmax[i], gaussdata$dz[i]),
-#       col=4, add=T, xlim=range(tab$x), lwd = 2)
-#i <- i +1
+tmp2 <- approx(tab$x,tab$y, method="linear")
+i <- i + 1
 j <- j + 1
 
-#fusion density et depth R codes -> need the find the density associated to the depth DCM....
 
-#reorder and sort by filename
-gaussdata <- gaussdata[order(gaussdata$file),]
+#TEMPORAL STATS ON PSEUDO GAUSSIAN PROFILES
+temporal_stats <- cbind(gaussdata, HSCdf)
+ggplot(temporal_stats, aes(month)) + geom_histogram(aes(fill=Category), 
+                                                    binwidth = .5,
+                                                    size = 1) +
+ ylab("Counts") + scale_x_discrete("Month",
+                                   limits = seq(1,12,by=1))
+  #theme(axis.text.x = element_text(angle=0, vjust=2))
+
+#fusion density et depth R codes -> need the find the density associated to the depth DCM....
 
 #function (code pourri -> bcp de problèmes bizarres.......... /-|-\"  
 rho_dcm_from_depth_dcm <- function(file, borne_inf, borne_sup){
@@ -809,6 +787,11 @@ rho_dcm_from_depth_dcm <- function(file, borne_inf, borne_sup){
   })
 }
 
+gaussdata_raw <- gaussdata
+#'PURE' DCM
+gaussdata <- temporal_stats[temporal_stats$Category == "DCM",]
+
+
 index_dcm <- which(duplicated(gaussdata$file) == FALSE)
 
 rho_dcm1 <- rho_dcm_from_depth_dcm(gaussdata$file[index_dcm[1]], index_dcm[1], index_dcm[2]-1)
@@ -821,7 +804,8 @@ rho_dcm <- rbind(rho_dcm1, rho_dcm2, rho_dcm3, rho_dcm4)
 i <- 414
 tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
 depthindex <- which.min(tmp$depth <= 100)
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$chla[1:depthindex])
+off_fluo <- tmp$fluo_NPQ[which.min(tmp$fluo_NPQ[1:depthindex])]
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_NPQ[1:depthindex]-off_fluo)
 x <- tab$x
 sigmoid <- fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
                     sigmoidf$s[i])
@@ -857,7 +841,7 @@ var_average <- function(dfin){
     #we remove them because it can induce further issues when computing
     #the potential density anomaly
     tmp <- tmp[!tmp$depth < 0,]
-    i <- i + 1
+    #i <- i + 1
     data.frame(tmp)
   })
 }
@@ -877,55 +861,44 @@ ExtractDensity <- function(chladf, FloatInfo){
     tempdf <- ExtractVar("TEMP",FloatInfo)
   }
   
-  # tempdf <- tempdf[!tempdf$qc == 4,]
-  # tempdf <- tempdf[!tempdf$qc == 3,]
-  
-  tempdf <- var_average(tempdf)
+  tempdf <- var_average(tempdf)#for averaging depth duplicates for temperature
   #instead of removing bad lines, put NA's ---> will impact graphics
-  setDT(tempdf, keep.rownames = TRUE)[]
-  bad_data <- as.numeric(tempdf[tempdf$qc == 4,]$rn)
+  bad_data <- which(tempdf$qc == 4)
   tempdf$value[bad_data] <- NA
-  bad_data <- as.numeric(tempdf[tempdf$qc == 3,]$rn)
+  bad_data <- which(tempdf$qc == 3)
   tempdf$value[bad_data] <- NA
-  
   
   psaldf <- ExtractVar("PSAL_ADJUSTED",FloatInfo)
   if (all(is.na(psaldf)) == TRUE) {
     psaldf <- ExtractVar("PSAL",FloatInfo)
   }
-  
-  # psaldf <- psaldf[!psaldf$qc == 4,]
-  # psaldf <- psaldf[!psaldf$qc == 3,]
-  
-  psaldf <- var_average(psaldf)
-  setDT(psaldf, keep.rownames = TRUE)[]
-  bad_data <- as.numeric(psaldf[psaldf$qc == 4,]$rn)
+  psaldf <- var_average(psaldf)#for averaging depth duplicates for salinity
+  bad_data <- which(psaldf$qc == 4)
   psaldf$value[bad_data] <- NA
-  bad_data <- as.numeric(psaldf[psaldf$qc == 3,]$rn)
+  bad_data <- which(psaldf$qc == 3)
   psaldf$value[bad_data] <- NA
   
-  #Extract matching rows temperature and salinity data frames
-  tempdf <- match_df(tempdf, psaldf, on = c("depth", "juld", "aprofile", "alevel"))
-  psaldf <- match_df(psaldf, tempdf, on = c("depth", "juld", "aprofile", "alevel"))
-  tempdf <- match_df(tempdf, chladf, on = c("depth", "juld"))
-  psaldf <- match_df(psaldf, chladf, on = c("depth", "juld"))
-  chladf <- match_df(chladf, psaldf, on = c("depth", "juld"))#135 lignes de plus que ce à quoi je m'attends...
-  #24101 pour tempdf et psaldf vs 24236 pour chladf et finaldf (voir après)
-  
+  # MEME PLUS BESOIN DE ÇA !
+  # #Extract matching rows temperature and salinity data frames
+  # tempdf <- match_df(tempdf, psaldf, on = c("depth", "juld", "aprofile", "alevel"))
+  # psaldf <- match_df(psaldf, tempdf, on = c("depth", "juld", "aprofile", "alevel"))
+  # tempdf <- match_df(tempdf, chladf, on = c("depth", "juld"))
+  # psaldf <- match_df(psaldf, chladf, on = c("depth", "juld"))
+  # chladf <- match_df(chladf, psaldf, on = c("depth", "juld"))#135 lignes de plus que ce à quoi je m'attends...
+  # #24101 pour tempdf et psaldf vs 24236 pour chladf et finaldf (voir après)
+  # 
   #Sub data frames
-  subtempdf <- subset(tempdf, select = c("value","depth","aprofile", "alevel","juld","lon","lat"))
-  colnames(subtempdf)[which(colnames(subtempdf)=="value")]<-"TEMP"
-  subpsaldf <- subset(psaldf, select = c("value","depth","aprofile","juld"))
-  colnames(subpsaldf)[which(colnames(subpsaldf)=="value")]<-"PSAL"
-  subchladf <- subset(chladf, select = c("value","depth","aprofile", "alevel","juld","qc"))
-  colnames(subchladf)[which(colnames(subchladf)=="value")]<-"CHLA"
-  colnames(subchladf)[which(colnames(subchladf)=="aprofile")]<-"profileCHLA"
-  colnames(subchladf)[which(colnames(subchladf)=="alevel")]<-"levelCHLA"
-  joindf <- join(subtempdf,subpsaldf, by = c("depth", "aprofile", "juld"))
-  colnames(joindf)[which(colnames(joindf)=="aprofile")]<-"profileTEMP/PSAL"
-  colnames(joindf)[which(colnames(joindf)=="alevel")]<-"levelTEMP/PSAL"
-  subchladf <- match_df(subchladf,joindf, on = c("depth", "juld"))
-  finaldf <- join(subchladf,joindf, by = c("depth","juld"))
+
+  subtempdf2 <- subset(tempdf, select = c("value","depth","juld","lon","lat"))
+  colnames(subtempdf2)[which(colnames(subtempdf2)=="value")]<-"TEMP"
+  subpsaldf2 <- subset(psaldf, select = c("value","depth","juld"))
+  colnames(subpsaldf2)[which(colnames(subpsaldf2)=="value")]<-"PSAL"
+  subchladf2 <- subset(chladf, select = c("fluo_NPQ","depth","juld","qc"))
+  colnames(subchladf2)[which(colnames(subchladf2)=="fluo_NPQ")]<-"CHLA"
+  joindf <- join(subtempdf2,subpsaldf2, by = c("depth","juld"))
+  subchladf2 <- match_df(subchladf2,joindf, on = c("depth", "juld"))
+  finaldf <- join(subchladf2,joindf, by = c("depth","juld"))
+  
   
   #use of gsw package
   #NEED CONVERSION OF PRACTICAL SALINITY TO ABSOLUTE SALINITY BEFORE USING THE FOLLOWING FUNCTION
@@ -936,7 +909,7 @@ ExtractDensity <- function(chladf, FloatInfo){
   
   rhodf <- data.frame(Depth= finaldf$depth,
                       rho_anomaly = rho_anomaly,  
-                      CHLA = finaldf$CHLA,
+                      CHLA = finaldf$CHLA,#fluo_NPQ du coup...
                       TEMP = temp,
                       PSAL = psal,
                       juld            = finaldf$juld,
@@ -961,6 +934,7 @@ densityprofiledf<-ldply(as.list(filename),function(file){
   lat      <- ncvar_get(ncfile,"LATITUDE")
   cycle_number <- ncvar_get(ncfile,"CYCLE_NUMBER")
   cycle_number <- cycle_number[N_PROF]
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
   
   FloatInfo<-list(N_PROF=N_PROF,
                   N_LEVELS=N_LEVELS,
@@ -970,24 +944,11 @@ densityprofiledf<-ldply(as.list(filename),function(file){
                   lat=lat,
                   cycle_number = cycle_number
   )
-  
-  ### Direct use of adjusted values if available
-  chladf <- ExtractVar("CHLA_ADJUSTED",FloatInfo)
-  if (all(is.na(chladf)) == TRUE) {
-    chladf <- ExtractVar("CHLA",FloatInfo)
-  }
-  
-  #chladf <- chladf[!chladf$qc == 4,]
-  
-  #instead of removing bad lines, put NA's ---> will impact graphics
-  setDT(chladf, keep.rownames = TRUE)[]
-  bad_data <- as.numeric(chladf[chladf$qc == 4,]$rn)
-  chladf$value[bad_data] <- NA
+
+  chladf <- profiledf[profiledf$Platform == as.numeric(unique(id)),]
   
   #Extraction de l'anomalie de densité potentielle
   densitydf <- ExtractDensity(chladf, FloatInfo)
-  
-  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
   
   #Construction du data frame final a lieu ici
   data.frame(depth         =densitydf$Depth,
@@ -1011,14 +972,13 @@ densityprofiledf <- unique(densityprofiledf)
 #Assign a profile number according to the (unique due to two decimals) julian day 
 densityprofiledf <- transform(densityprofiledf,id=as.numeric(factor(juld)))
 
-# obsolete now?
-# #éventuellement -> introduit un peu d'incertitude mais pas tant que cela
-# density_duplicate <- which(duplicated(densityprofiledf$density))
-# densityprofiledf <- densityprofiledf[-density_duplicate,]
+# TEST PURE DCM'
+
+index_profile_pure_DCM <- gaussdata$juld
 
 #get gaussian 'only' profiles
-densitygaussianprofilesdf <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
-  tmp <- densityprofiledf[densityprofiledf$juld == gaussprofiles$juld[i],]
+densitygaussianprofilesdf <- ldply(as.list(1:length(index_profile_pure_DCM)), function(i){
+  tmp <- densityprofiledf[densityprofiledf$juld == gaussdata$juld[i],]
   data.frame(depth = tmp$depth, density = tmp$density, juld = tmp$juld, chla = tmp$chla, 
              day = tmp$day, month = tmp$month, year = tmp$year, DOY = tmp$DOY,
              Platform = tmp$Platform)
@@ -1070,7 +1030,7 @@ perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar
 ggplot(perioddf, aes(x=density, y=chla, group=juld)) +
   geom_point() + facet_grid(~group) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) + coord_flip() + scale_x_reverse()
+  coord_flip() + scale_x_reverse()
 
 #Seasonal Analysis per year
 
@@ -1078,45 +1038,27 @@ ggplot(perioddf, aes(x=density, y=chla, group=juld)) +
 
 season_2017_rho <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2017,]
 ggplot(season_2017_rho, aes(x=density, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~season) +
-  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
-  coord_flip() + scale_color_viridis() +  scale_x_reverse()
-
-season_2017_rho <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2017,]
-ggplot(season_2017_rho, aes(x=density, y=chla, color=month, group=juld)) +
   geom_point() + facet_grid(~season) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
   coord_flip() + scale_color_viridis() +  scale_x_reverse()
 
 season_2016_rho <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2016,]
 ggplot(season_2016_rho, aes(x=density, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~season) +
+  geom_point() + facet_grid(~season) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
-  coord_flip() + scale_color_viridis() +  scale_x_reverse()
+  coord_flip() + scale_color_viridis() +  scale_x_reverse() + ylim(0,400)
 
 season_2015_rho <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2015,]
 ggplot(season_2015_rho, aes(x=density, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~season) +
+  geom_point() + facet_grid(~season) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
-  coord_flip() + scale_color_viridis() +  scale_x_reverse()
+  coord_flip() + scale_color_viridis() +  scale_x_reverse() + ylim(0,400)
 
 season_2014_rho <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2014,]
 ggplot(season_2014_rho, aes(x=density, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~season) +
+  geom_point() + facet_grid(~season) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
-  coord_flip() + scale_color_viridis() +  scale_x_reverse()
-
-season_2013_rho <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2013,]
-ggplot(season_2013_rho, aes(x=density, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~season) +
-  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
-  coord_flip() + scale_color_viridis() +  scale_x_reverse()
+  coord_flip() + scale_color_viridis() +  scale_x_reverse() + ylim(0,400)
 
 #Conclusion : Ne se focaliser que sur les années 2015 à 2017.
 
@@ -1135,20 +1077,20 @@ densitygaussianprofilesdf <- transform(densitygaussianprofilesdf,id=as.numeric(f
 ggplot(densitygaussianprofilesdf, aes(x=density, y=chla, color=month, group=juld)) +
   geom_point() + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
+  ylim(0,400) +
   coord_flip() + scale_color_viridis() +  scale_x_reverse()
 
 ggplot(densitygaussianprofilesdf, aes(x=density, y=chla, color=month, group=juld)) +
   geom_point() + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
+  ylim(0,400) +
   coord_flip() + scale_color_gradientn(colours = rainbow(5)) + scale_x_reverse()
 
 #for continuous scale
 ggplot(densitygaussianprofilesdf2, aes(x=density, y=chla, color=season, group=juld)) +
   geom_point() + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
+  ylim(0,400) +
   coord_flip() + scale_color_viridis() + scale_x_reverse()
 
 #discrete case
@@ -1160,7 +1102,7 @@ densitygaussianprofilesdf2$season[densitygaussianprofilesdf2$season == 4] <- "Au
 ggplot(densitygaussianprofilesdf2, aes(x=density, y=chla, color=season, group=juld)) +
   geom_point(size = 0.2) + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
+  ylim(0,400) +
   coord_flip() + scale_x_reverse()
 
 #NOTE : quid des mois hors max et min MLD (soit mois d'octobre à janvier)
@@ -1184,7 +1126,7 @@ densitygaussianprofilesdf2$month = factor(densitygaussianprofilesdf2$month, leve
 ggplot(densitygaussianprofilesdf2, aes(x=density, y=chla, color=month, group=juld)) +
   geom_point() + facet_grid(~year) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
+  ylim(0,400) +
   coord_flip() + scale_x_reverse()
 
 #2017
@@ -1194,19 +1136,19 @@ tmp <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2017,]
 ggplot(tmp, aes(x=density, y=chla, color=season, group=juld)) +
   geom_point(size = 0.1) + facet_grid(~season) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
+  ylim(0,400) +
   coord_flip() + scale_x_reverse()
 
 ggplot(tmp, aes(x=density, y=chla, color=season, group=juld)) +
-  geom_line() + facet_grid(~season) +
+  geom_point() + facet_grid(~season) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
+  ylim(0,400) +
   coord_flip() + scale_x_reverse()
 
 ggplot(densitygaussianprofilesdf2, aes(x=density, y=chla, color=month, group=juld)) +
   geom_line() + facet_grid(~season) +
   xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
-  ylim(0,4) +
+  ylim(0,400) +
   coord_flip() + scale_color_gradientn(colours = rainbow(5)) + scale_x_reverse()
 coord_flip() + scale_color_viridis() + scale_x_reverse()
 
@@ -1238,9 +1180,9 @@ coord_flip() + scale_color_viridis() + scale_x_reverse()
 
 #this one
 ggplot(profiledf, aes(x=depth, y=chla, color=month, group=juld)) +
-  geom_line() + facet_grid(~year) +
+  geom_point() + facet_grid(~year) +
   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
-  xlim(80, 0) + ylim(0,4) +
+  xlim(80, 0) + ylim(0,400) +
   coord_flip() + scale_color_gradientn(colours = rainbow(5))
 
 # ggplot(profiledf, aes(x=-depth, y=chla, color=month, group=juld)) +
@@ -1253,7 +1195,7 @@ ggplot(profiledf, aes(x=depth, y=chla, color=month, group=juld)) +
 ggplot(profiledf, aes(x=depth, y=chla, color=month, group=juld)) +
   geom_line() + facet_grid(~year) +
   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
-  xlim(80, 0) +ylim(0,4) +
+  xlim(80, 0) +ylim(0,400) +
   coord_flip() + scale_color_viridis()
 
 # ggplot(profiledf, aes(x=-depth, y=chla, color=month, group=juld)) +
@@ -1278,7 +1220,7 @@ profiledf2<-ddply(profiledf,~month, transform, season=1*(month %in% c(12,1,2))+
 ggplot(profiledf2, aes(x=depth, y=chla, color=season, group=juld)) +
   geom_line() + facet_grid(~year) +
   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
-  xlim(80, 0) +ylim(0,4) +
+  xlim(80, 0) +ylim(0,400) +
   coord_flip() + scale_color_viridis()
 
 
@@ -1321,13 +1263,13 @@ perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar
 ggplot(perioddf, aes(x=depth, y=chla, group=juld)) +
   geom_line() + facet_grid(~group) +
   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
-  xlim(80, 0) +ylim(0,4) +
+  xlim(80, 0) +ylim(0,400) +
   coord_flip() 
 
 ggplot(perioddf, aes(x=depth, y=chla, group=juld)) +
   geom_point(size = 0.8) + facet_grid(~group) +
   xlab("Depth (m)") + ylab("Chlorophyll a (kg/m³)") +
-  xlim(80, 0) +ylim(0,4) +
+  xlim(80, 0) +ylim(0,400) +
   coord_flip() 
 
 #Graphique Black Sea --------------
