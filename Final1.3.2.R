@@ -728,6 +728,65 @@ ggplot(temporal_stats, aes(month)) + geom_histogram(aes(fill=Category),
                                    limits = seq(1,12,by=1))
   #theme(axis.text.x = element_text(angle=0, vjust=2))
 
+modified_DCM <- temporal_stats[temporal_stats$Category == "Modified_DCM",]
+modified_DCM <- transform(modified_DCM,id=as.numeric(factor(juld)))
+DCM <- temporal_stats[temporal_stats$Category == "DCM",]
+DCM <- transform(DCM,id=as.numeric(factor(juld)))
+
+#get DCM profiles
+DCMprofiles <- ldply(as.list(1:length(DCM$juld)), function(i){
+  tmp <- gaussprofiles[gaussprofiles$juld == DCM$juld[i],]
+  tmp3 <- gaussdata[gaussdata$juld == DCM$juld[i],]
+  tmp2 <- profiledf[profiledf$juld == DCM$juld[i],]
+  n <- length(tmp2$depth)
+  data.frame(depth = tmp2$depth, juld = tmp2$juld, fluo = tmp2$fluo_adjusted, qc = tmp2$qc,
+             day = tmp2$day, month = tmp2$month, year = tmp2$year, DOY = tmp2$DOY,
+             Platform = tmp2$Platform, lon = tmp2$lon, lat = tmp2$lat, 
+             Fsurf = rep(tmp3$Fsurf, n), Fmax = rep(tmp3$Fmax, n), Zmax = rep(tmp3$Zmax, n),
+             dz = rep(tmp3$dz, n), Zdemi = rep(tmp3$Zdemi, n))
+})
+
+#get modified DCM
+modified_DCMprofiles <- ldply(as.list(1:length(modified_DCM$juld)), function(i){
+  tmp <- gaussprofiles[gaussprofiles$juld == modified_DCM$juld[i],]
+  tmp3 <- gaussdata[gaussdata$juld == modified_DCM$juld[i],]
+  tmp2 <- profiledf[profiledf$juld == modified_DCM$juld[i],]
+  n <- length(tmp2$depth)
+  data.frame(depth = tmp2$depth, juld = tmp2$juld, fluo = tmp2$fluo_adjusted, qc = tmp2$qc,
+             day = tmp2$day, month = tmp2$month, year = tmp2$year, DOY = tmp2$DOY,
+             Platform = tmp2$Platform, lon = tmp2$lon, lat = tmp2$lat, 
+             Fsurf = rep(tmp3$Fsurf, n), Fmax = rep(tmp3$Fmax, n), Zmax = rep(tmp3$Zmax, n),
+             dz = rep(tmp3$dz, n), Zdemi = rep(tmp3$Zdemi, n))
+})
+
+DCMprofiles <- transform(DCMprofiles,id=as.numeric(factor(juld)))
+modified_DCMprofiles <- transform(modified_DCMprofiles, id=as.numeric(factor(juld)))
+
+#Check Visu DCM
+tmp <- DCMprofiles[DCMprofiles$id==i,]#gappy data, no interpolation
+depthindex <- which.min(tmp$depth <= 100)
+off_fluo <- tmp$fluo[which.min(tmp$fluo[1:depthindex])]
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex]-off_fluo)
+x <- tab$x
+plot(y~x, data=tab, type="l", lwd = 2)
+lines(x = tab$x, fgauss(x,tmp$Fsurf[i], tmp$Zdemi[i],
+                        tmp$Fmax[i], tmp$Zmax[i], tmp$dz[i]),
+      col=4, add=T, xlim=range(tab$x), lwd = 2)
+i <- i + 1
+
+#Check Visu modified_DCM
+tmp <- modified_DCMprofiles[modified_DCMprofiles$id==i,]#gappy data, no interpolation
+depthindex <- which.min(tmp$depth <= 100)
+off_fluo <- tmp$fluo[which.min(tmp$fluo[1:depthindex])]
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex]-off_fluo)
+x <- tab$x
+plot(y~x, data=tab, type="l", lwd = 2)
+lines(x = tab$x, fgauss(x,tmp$Fsurf[i], tmp$Zdemi[i],
+                        tmp$Fmax[i], tmp$Zmax[i], tmp$dz[i]),
+      col=4, add=T, xlim=range(tab$x), lwd = 2)
+i <- i + 1
+
+
 #fusion density et depth R codes -> need the find the density associated to the depth DCM....
 
 #function (code pourri -> bcp de problèmes bizarres.......... /-|-\"  
