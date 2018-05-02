@@ -1048,21 +1048,23 @@ rho_DCM_modified_densityprofiledf <- transform(rho_DCM_modified_densityprofiledf
 for (i in 1:length(dcm_juld_to_remove)){
   rho_DCM_densityprofiledf <- rho_DCM_densityprofiledf[!(rho_DCM_densityprofiledf$juld == dcm_juld_to_remove[i]),]
   DCMprofiles <- DCMprofiles[!(DCMprofiles$juld == dcm_juld_to_remove[i]),]
+  DCM <- DCM[!DCM$juld == dcm_juld_to_remove[i],]
   }
 
 rho_DCM_densityprofiledf <- transform(rho_DCM_densityprofiledf,id=as.numeric(factor(juld)))
 DCMprofiles <- transform(DCMprofiles, id = as.numeric(factor(juld)))
-
+DCM <- transform(DCM, id = as.numeric(factor(juld)))
 
 #Modified DCM cleaning
 for (i in 1:length(modified_dcm_juld_to_remove)){
   rho_DCM_modified_densityprofiledf <- rho_DCM_modified_densityprofiledf[!(rho_DCM_modified_densityprofiledf$juld == modified_dcm_juld_to_remove[i]),]
   modified_DCMprofiles <- modified_DCMprofiles[!(modified_DCMprofiles$juld == modified_dcm_juld_to_remove[i]),]
+  modified_DCM <- modified_DCM[!(modified_DCM$juld == modified_dcm_juld_to_remove[i]),]
   }
 
 rho_DCM_modified_densityprofiledf <- transform(rho_DCM_modified_densityprofiledf,id=as.numeric(factor(juld)))
 modified_DCMprofiles <- transform(modified_DCMprofiles, id = as.numeric(factor(juld)))
-
+modified_DCM <- transform(modified_DCM, id = as.numeric(factor(juld)))
 
 # CHECK VISU
 #Check Visu DCM
@@ -1090,18 +1092,113 @@ lines(x = tab$x, fgauss(x,tmp$Fsurf[1], tmp$Zdemi[1],
 i <- i + 1
 
 
+#CREATION OF TEXT FILES FOR FURTHER DIVA ANALYSIS
+TOTAL_DCM_PROFILES <- rbind(DCMprofiles, modified_DCMprofiles)
+TOTAL_DCM_PROFILES <- transform(TOTAL_DCM_PROFILES,id=as.numeric(factor(juld)))
+TOTAL_DCM <- rbind(DCM, modified_DCM)
+TOTAL_DCM <- transform(TOTAL_DCM, id = as.numeric(factor(juld)))
+TOTAL_DCM <- TOTAL_DCM[order(TOTAL_DCM$id),]
+TOTAL_RHO_PROFILES <- rbind(rho_DCM_densityprofiledf, rho_DCM_modified_densityprofiledf)
+TOTAL_RHO_PROFILES <- transform(TOTAL_RHO_PROFILES, id = as.numeric(factor(juld)))
+TOTAL_RHO_PROFILES <- TOTAL_RHO_PROFILES[order(TOTAL_RHO_PROFILES$id),]
+TOTAL_RHO <- rbind(rhoDCM, rho_modified_DCM)
+TOTAL_RHO <- transform(TOTAL_RHO, id = as.numeric(factor(juld)))
+TOTAL_RHO <- TOTAL_RHO[order(TOTAL_RHO$id),]
+
+
+TOTAL_DCM_PROFILES <- ddply(TOTAL_DCM_PROFILES,~month, transform, season=1*(month %in% c(12,1,2))+
+                 2*(month %in% c(3,4,5 ))+
+                 3*(month %in% c(6,7,8 ))+
+                 4*(month %in% c(9,10,11 )))
+
+TOTAL_DCM <- ddply(TOTAL_DCM,~month, transform, season=1*(month %in% c(12,1,2))+
+                              2*(month %in% c(3,4,5 ))+
+                              3*(month %in% c(6,7,8 ))+
+                              4*(month %in% c(9,10,11 )))
+
+TOTAL_RHO_PROFILES <- ddply(TOTAL_RHO_PROFILES,~month, transform, season=1*(month %in% c(12,1,2))+
+                              2*(month %in% c(3,4,5 ))+
+                              3*(month %in% c(6,7,8 ))+
+                              4*(month %in% c(9,10,11 )))
+
+TOTAL_RHO <- ddply(TOTAL_RHO,~month, transform, season=1*(month %in% c(12,1,2))+
+                              2*(month %in% c(3,4,5 ))+
+                              3*(month %in% c(6,7,8 ))+
+                              4*(month %in% c(9,10,11 )))
+
+#TEXT FILES creation FOR DIVA
+
+# DCM ONLY
+
+subDCM <- subset(DCM, select = c("lon", "lat", "juld", "Zmax","DOY", "year",
+                                 "month", "day", "file"))
+sub_rhoDCM <- subset(rhoDCM, select = c("lon", "lat", "juld", "rho_dcm","DOY", "year",
+                                     "month", "day", "filename"))
+
+dcm_rho_depth <- cbind(subDCM, sub_rhoDCM$rho_dcm)
+
+# write.table(subDCM, file="TRUE_DCM_DEPTH.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(sub_rhoDCM, file="TRUE_DCM_RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(dcm_rho_depth, file="TRUE_DCM_DEPTH&RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+
+# MODIFIED DCM ONLY
+
+sub_modified_DCM <- subset(modified_DCM, select = c("lon", "lat", "juld", "Zmax","DOY", "year",
+                                 "month", "day", "file"))
+sub_rho_modified_DCM <- subset(rho_modified_DCM, select = c("lon", "lat", "juld", "rho_dcm","DOY", "year",
+                                        "month", "day", "filename"))
+
+modified_dcm_rho_depth <- cbind(sub_modified_DCM, sub_rho_modified_DCM$rho_dcm)
+
+# write.table(sub_modified_DCM, file="MODIFIED_DCM_DEPTH.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(sub_rho_modified_DCM, file="MODIFIED_DCM_RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(modified_dcm_rho_depth, file="MODIFIED_DCM_DEPTH&RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#  row.names = FALSE, col.names = FALSE)
+
+# ALL
+
+sub_TOTAL_DCM <- subset(TOTAL_DCM, select = c("lon", "lat", "juld", "Zmax","DOY", "year",
+                                                 "month", "day", "file"))
+
+sub_TOTAL_RHO <- subset(TOTAL_RHO, select = c("lon", "lat", "juld", "rho_dcm","DOY", "year",
+                                                     "month", "day", "filename"))
+
+TOTAL_DCM_DEPTH_RHO <- cbind(sub_TOTAL_DCM, sub_TOTAL_RHO$rho_dcm)
+
+# write.table(sub_TOTAL_DCM, file="TOTAL_DCM_DEPTH.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(sub_TOTAL_RHO, file="TOTAL_DCM_RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(TOTAL_DCM_DEPTH_RHO, file="TOTAL_DCM_DEPTH&RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+
+
 ############################################################
 ######################## GRAPHICS ##########################
 ############################################################
+
+
  
+
 #Density graphics -------
-densitygaussianprofilesdf2<-ddply(densitygaussianprofilesdf,~month, transform, season=1*(month %in% c(12,1,2))+
+forgraph<-ddply(rho_DCM_densityprofiledf,~month, transform, season=1*(month %in% c(12,1,2))+
                                     2*(month %in% c(3,4,5 ))+
                                     3*(month %in% c(6,7,8 ))+
                                     4*(month %in% c(9,10,11 )))
 
 #Temporal evolution for 2017
-tmp <- densitygaussianprofilesdf2[densitygaussianprofilesdf2$year == 2017,]
+tmp <- rho_DCM_densityprofiledf2[rho_DCM_densityprofiledf2$year == 2017,]
 Per1 <- tmp[tmp$DOY <= 10,]
 Per2 <- tmp[tmp$DOY >= 30 & tmp$DOY <= 40,]
 Per3 <- tmp[tmp$DOY >= 60 & tmp$DOY <= 70,]
@@ -1137,9 +1234,9 @@ perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar
                                                  '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec'))
 
 #same as DepthDataExtraction
-ggplot(perioddf, aes(x=density, y=chla, group=juld)) +
+ggplot(perioddf, aes(x=density, y=FLUO_ADJUSTED, group=juld)) +
   geom_point() + facet_grid(~group) +
-  xlab("Potential density anomaly (kg/m³)") + ylab("Chlorophyll a (kg/m³)") +
+  xlab("Potential density anomaly (kg/m³)") + ylab("fluorescence (counts)") +
   coord_flip() + scale_x_reverse()
 
 #Seasonal Analysis per year
