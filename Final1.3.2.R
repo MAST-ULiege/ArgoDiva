@@ -658,9 +658,6 @@ gaussdata <- ldply(as.list(1:length(gaussprofiles$juld)), function(i){
 
 gaussdata <- transform(gaussdata,id=as.numeric(factor(juld)))
 
-#reorder and sort by filename
-#gaussdata <- gaussdata[order(gaussdata$file),]
-
 #SHAPE TEST FROM LAVIGNE 2015
 HSCdf <- ldply(as.list(1:length(unique(gaussianprofdf$juld))), function(i){
     
@@ -786,11 +783,16 @@ lines(x = tab$x, fgauss(x,tmp$Fsurf[i], tmp$Zdemi[i],
       col=4, add=T, xlim=range(tab$x), lwd = 2)
 i <- i + 1
 
-
 #fusion density et depth R codes -> need the find the density associated to the depth DCM....
 
-#function (code pourri -> bcp de problèmes bizarres.......... /-|-\"  
-rho_dcm_from_depth_dcm <- function(file, borne_inf, borne_sup){
+#function (code pourri -> bcp de problèmes bizarres.......... /-|-\" 
+
+#reorder and sort by filename for rho_DCM
+DCM <- DCM[order(DCM$file),]
+modified_DCM <- modified_DCM[order(modified_DCM$file),]
+
+#datadf is either DCM or modified_DCM
+rho_dcm_from_depth_dcm <- function(file, borne_inf, borne_sup, datadf){
   
   file <- paste0(file,"_Mprof.nc")
   ncfile <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
@@ -816,65 +818,67 @@ rho_dcm_from_depth_dcm <- function(file, borne_inf, borne_sup){
     tempdf <- ExtractVar("TEMP",FloatInfo)
   }
   
+  bad_data <- which(tempdf$qc == 4)
+  tempdf$value[bad_data] <- NA
+  bad_data <- which(tempdf$qc == 3)
+  tempdf$value[bad_data] <- NA
+  
   psaldf <- ExtractVar("PSAL_ADJUSTED",FloatInfo)
   if (all(is.na(psaldf)) == TRUE) {
     psaldf <- ExtractVar("PSAL",FloatInfo)
   }
   
+  bad_data <- which(psaldf$qc == 4)
+  psaldf$value[bad_data] <- NA
+  bad_data <- which(psaldf$qc == 3)
+  psaldf$value[bad_data] <- NA
+  
   df <- ldply(as.list(borne_inf:borne_sup), function(i){
     
-    depth_dcm <- gaussdata$Zmax[i]
-    julian_day <- gaussdata$juld[i]
+    depth_dcm <- datadf$Zmax[i]
+    julian_day <- datadf$juld[i]
     
     psaltmp <- psaldf[psaldf$juld == julian_day,]
     temptmp<- tempdf[tempdf$juld == julian_day,]
     
-    #modifier la ligne suivante pour prendre la valeur la plus proche !!!! 
-    #indexdepth <- which(temptmp$depth >= depth_dcm)[1]#note que ce n'est pas la meilleure des méthodes vu les différentes vertical schemes des argos
     indexdepth <- which.min(abs(temptmp$depth - depth_dcm))
     psaltmp <- psaltmp[indexdepth,]
     temptmp <- temptmp[indexdepth,]
     
     psal <- gsw_SA_from_SP(psaltmp$value,depth_dcm,psaltmp$lon,psaltmp$lat)
-    temp <- gsw_CT_from_t(psaltmp$value,temptmp$value,depth_dcm) #=============================================================================================================================================== ERREUR ???
+    temp <- gsw_CT_from_t(psal,temptmp$value,depth_dcm) 
     rho_anomaly <- gsw_sigma0(psal,temp)
     #i <- i + 1
-    data.frame(rho_dcm = rho_anomaly, filename = gaussdata$file[i],
-               lon = gaussdata$lon[i], lat = gaussdata$lat[i],
-               day = gaussdata$day[i], month = gaussdata$month[i], year = gaussdata$year[i],
-               DOY = gaussdata$DOY[i], juld = gaussdata$juld[i])
+    data.frame(rho_dcm = rho_anomaly, filename = datadf$file[i],
+               lon = datadf$lon[i], lat = datadf$lat[i],
+               day = datadf$day[i], month = datadf$month[i], year = datadf$year[i],
+               DOY = datadf$DOY[i], juld = datadf$juld[i])
   })
 }
 
 gaussdata_raw <- gaussdata
-#'PURE' DCM
-gaussdata <- temporal_stats[temporal_stats$Category == "DCM",]
 
+#Choose your data
+datadf <- modified_DCM
+datadf <- DCM
 
-index_dcm <- which(duplicated(gaussdata$file) == FALSE)
+index_dcm <- which(duplicated(datadf$file) == FALSE)
 
-rho_dcm1 <- rho_dcm_from_depth_dcm(gaussdata$file[index_dcm[1]], index_dcm[1], index_dcm[2]-1)
-rho_dcm2 <- rho_dcm_from_depth_dcm(gaussdata$file[index_dcm[2]], index_dcm[2], index_dcm[3]-1)
-rho_dcm3 <- rho_dcm_from_depth_dcm(gaussdata$file[index_dcm[3]], index_dcm[3], index_dcm[4]-1)
-rho_dcm4 <- rho_dcm_from_depth_dcm(gaussdata$file[index_dcm[4]], index_dcm[4], length(gaussdata$juld))
+rho_dcm1 <- rho_dcm_from_depth_dcm(datadf$file[index_dcm[1]], index_dcm[1], index_dcm[2]-1, datadf)
+rho_dcm2 <- rho_dcm_from_depth_dcm(datadf$file[index_dcm[2]], index_dcm[2], index_dcm[3]-1, datadf)
+rho_dcm3 <- rho_dcm_from_depth_dcm(datadf$file[index_dcm[3]], index_dcm[3], index_dcm[4]-1, datadf)
+rho_dcm4 <- rho_dcm_from_depth_dcm(datadf$file[index_dcm[4]], index_dcm[4], length(datadf$juld), datadf)
 rho_dcm <- rbind(rho_dcm1, rho_dcm2, rho_dcm3, rho_dcm4)
 
-#visualisation
-i <- 414
-tmp <- profiledf[profiledf$id==i,]#gappy data, no interpolation
-depthindex <- which.min(tmp$depth <= 100)
-off_fluo <- tmp$fluo_NPQ[which.min(tmp$fluo_NPQ[1:depthindex])]
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo_NPQ[1:depthindex]-off_fluo)
-x <- tab$x
-sigmoid <- fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
-                    sigmoidf$s[i])
-gauss <- fgauss(x,gaussiandf$Fsurf[i], gaussiandf$Zdemi[i],
-                gaussiandf$Fmax[i], gaussiandf$Zmax[i], gaussiandf$dz[i])
-plot(y~x, data=tab, type="l", lwd = 2)
-lines(x = tab$x, sigmoid, col=2, add=T, xlim=range(tab$x), lwd = 2)
-lines(x = tab$x, gauss, col=4, add=T, xlim=range(tab$x), lwd = 2)
-i <- i+ 1 
+rhoNA <- which(is.na(rho_dcm$rho_dcm) == TRUE)
+modified_dcm_juld_to_remove <- rho_dcm$juld[rhoNA]#for below
+dcm_juld_to_remove <- rho_dcm$juld[rhoNA]#for below
+#remove NA's
+rho_dcm <- rho_dcm[complete.cases(rho_dcm),]
+rho_dcm <- transform(rho_dcm,id=as.numeric(factor(juld)))
 
+rhoDCM <- rho_dcm
+rho_modified_DCM <- rho_dcm 
 
 # FRACTION OF VARIANCE UNEXPLAINED
 # https://en.wikipedia.org/wiki/Fraction_of_variance_unexplained
@@ -952,12 +956,12 @@ ExtractDensity <- function(chladf, FloatInfo){
   colnames(subtempdf2)[which(colnames(subtempdf2)=="value")]<-"TEMP"
   subpsaldf2 <- subset(psaldf, select = c("value","depth","juld"))
   colnames(subpsaldf2)[which(colnames(subpsaldf2)=="value")]<-"PSAL"
-  subchladf2 <- subset(chladf, select = c("fluo_NPQ","depth","juld","qc"))
-  colnames(subchladf2)[which(colnames(subchladf2)=="fluo_NPQ")]<-"CHLA"
+  #subchladf2 <- subset(chladf, select = c("fluo_adjusted","depth","juld","qc"))
+  subchladf2 <- subset(chladf, select = c("fluo","depth","juld","qc"))
+  colnames(subchladf2)[which(colnames(subchladf2)=="fluo")]<-"FLUO_adjusted"
   joindf <- join(subtempdf2,subpsaldf2, by = c("depth","juld"))
   subchladf2 <- match_df(subchladf2,joindf, on = c("depth", "juld"))
   finaldf <- join(subchladf2,joindf, by = c("depth","juld"))
-  
   
   #use of gsw package
   #NEED CONVERSION OF PRACTICAL SALINITY TO ABSOLUTE SALINITY BEFORE USING THE FOLLOWING FUNCTION
@@ -966,20 +970,20 @@ ExtractDensity <- function(chladf, FloatInfo){
   temp <- gsw_CT_from_t(psal,finaldf$TEMP,finaldf$depth)
   rho_anomaly <- gsw_sigma0(psal,temp)
   
-  rhodf <- data.frame(Depth= finaldf$depth,
-                      rho_anomaly = rho_anomaly,  
-                      CHLA = finaldf$CHLA,#fluo_NPQ du coup...
-                      TEMP = temp,
-                      PSAL = psal,
-                      juld            = finaldf$juld,
-                      day             = month.day.year(finaldf$juld,c(1,1,1950))$day,
-                      month           = month.day.year(finaldf$juld,c(1,1,1950))$month,
-                      year            = month.day.year(finaldf$juld,c(1,1,1950))$year,
-                      lon             = finaldf$lon,
-                      lat             = finaldf$lat)
+  rhodf <- data.frame(depth         = finaldf$depth,
+                      rho_anomaly   = rho_anomaly,  
+                      FLUO_ADJUSTED = finaldf$FLUO_adjusted,
+                      TEMP          = temp,
+                      PSAL          = psal,
+                      juld          = finaldf$juld,
+                      day           = month.day.year(finaldf$juld,c(1,1,1950))$day,
+                      month         = month.day.year(finaldf$juld,c(1,1,1950))$month,
+                      year          = month.day.year(finaldf$juld,c(1,1,1950))$year,
+                      lon           = finaldf$lon,
+                      lat           = finaldf$lat)
 }
 
-densityprofiledf<-ldply(as.list(filename),function(file){
+rho_DCM_modified_densityprofiledf<-ldply(as.list(filename),function(file){
   
   #Opening the file in a open-only mode
   ncfile   <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
@@ -1004,45 +1008,92 @@ densityprofiledf<-ldply(as.list(filename),function(file){
                   cycle_number = cycle_number
   )
 
-  chladf <- profiledf[profiledf$Platform == as.numeric(unique(id)),]
+  #chladf <- profiledf[profiledf$Platform == as.numeric(unique(id)),]
+  # MODIFY HERE
+  chladf <- modified_DCMprofiles[modified_DCMprofiles$Platform == as.numeric(unique(id)),]
   
   #Extraction de l'anomalie de densité potentielle
   densitydf <- ExtractDensity(chladf, FloatInfo)
   
   #Construction du data frame final a lieu ici
-  data.frame(depth         =densitydf$Depth,
+  data.frame(depth         = densitydf$depth,
              density       = densitydf$rho_anomaly,
-             juld            = densitydf$juld,
-             chla           = densitydf$CHLA,
-             day             = month.day.year(densitydf$juld,c(1,1,1950))$day,
-             month           = month.day.year(densitydf$juld,c(1,1,1950))$month,
-             year            = month.day.year(densitydf$juld,c(1,1,1950))$year,
-             DOY             = as.integer(strftime(as.Date(densitydf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
-             lon             = densitydf$lon,
-             lat             = densitydf$lat,
-             Platform        = as.numeric(unique(id)),
-             type            = "Argo")
+             juld          = densitydf$juld,
+             FLUO_ADJUSTED = densitydf$FLUO_ADJUSTED,
+             day           = month.day.year(densitydf$juld,c(1,1,1950))$day,
+             month         = month.day.year(densitydf$juld,c(1,1,1950))$month,
+             year          = month.day.year(densitydf$juld,c(1,1,1950))$year,
+             DOY           = as.integer(strftime(as.Date(densitydf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             lon           = densitydf$lon,
+             lat           = densitydf$lat,
+             Platform      = as.numeric(unique(id)),
+             type          = "Argo")
 })
 
-densityprofiledf_raw <- densityprofiledf
+rho_DCM_densityprofiledf_raw <- rho_DCM_densityprofiledf
+rho_DCM_modified_densityprofiledf_raw <- rho_DCM_modified_densityprofiledf
 
 #pour supprimer les doublons qui apparaissent
-densityprofiledf <- unique(densityprofiledf)
+rho_DCM_densityprofiledf <- unique(rho_DCM_densityprofiledf)
+rho_DCM_modified_densityprofiledf <- unique(rho_DCM_modified_densityprofiledf)
 #Assign a profile number according to the (unique due to two decimals) julian day 
-densityprofiledf <- transform(densityprofiledf,id=as.numeric(factor(juld)))
+rho_DCM_densityprofiledf <- transform(rho_DCM_densityprofiledf,id=as.numeric(factor(juld)))
+rho_DCM_modified_densityprofiledf <- transform(rho_DCM_modified_densityprofiledf,id=as.numeric(factor(juld)))
 
-# TEST PURE DCM'
+#REMOVE PROFILES FOR WHICH JULD HAS TO BE REMOVED BECAUSE RHO COULD NOT 
+# BE COMPUTED WITH CERTAINTY
+# CHECK THAT AFTER IT IS WELL 228 AND 183
 
-index_profile_pure_DCM <- gaussdata$juld
+#DCM cleaning
+for (i in 1:length(dcm_juld_to_remove)){
+  rho_DCM_densityprofiledf <- rho_DCM_densityprofiledf[!(rho_DCM_densityprofiledf$juld == dcm_juld_to_remove[i]),]
+  DCMprofiles <- DCMprofiles[!(DCMprofiles$juld == dcm_juld_to_remove[i]),]
+  }
 
-#get gaussian 'only' profiles
-densitygaussianprofilesdf <- ldply(as.list(1:length(index_profile_pure_DCM)), function(i){
-  tmp <- densityprofiledf[densityprofiledf$juld == gaussdata$juld[i],]
-  data.frame(depth = tmp$depth, density = tmp$density, juld = tmp$juld, chla = tmp$chla, 
-             day = tmp$day, month = tmp$month, year = tmp$year, DOY = tmp$DOY,
-             Platform = tmp$Platform)
-})
+rho_DCM_densityprofiledf <- transform(rho_DCM_densityprofiledf,id=as.numeric(factor(juld)))
+DCMprofiles <- transform(DCMprofiles, id = as.numeric(factor(juld)))
 
+
+#Modified DCM cleaning
+for (i in 1:length(modified_dcm_juld_to_remove)){
+  rho_DCM_modified_densityprofiledf <- rho_DCM_modified_densityprofiledf[!(rho_DCM_modified_densityprofiledf$juld == modified_dcm_juld_to_remove[i]),]
+  modified_DCMprofiles <- modified_DCMprofiles[!(modified_DCMprofiles$juld == modified_dcm_juld_to_remove[i]),]
+  }
+
+rho_DCM_modified_densityprofiledf <- transform(rho_DCM_modified_densityprofiledf,id=as.numeric(factor(juld)))
+modified_DCMprofiles <- transform(modified_DCMprofiles, id = as.numeric(factor(juld)))
+
+
+# CHECK VISU
+#Check Visu DCM
+tmp <- DCMprofiles[DCMprofiles$id==i,]#gappy data, no interpolation
+depthindex <- which.min(tmp$depth <= 100)
+off_fluo <- tmp$fluo[which.min(tmp$fluo[1:depthindex])]
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex]-off_fluo)
+x <- tab$x
+plot(y~x, data=tab, type="l", lwd = 2)
+lines(x = tab$x, fgauss(x,tmp$Fsurf[1], tmp$Zdemi[1],
+                        tmp$Fmax[1], tmp$Zmax[1], tmp$dz[1]),
+      col=4, add=T, xlim=range(tab$x), lwd = 2)
+i <- i + 1
+
+#Check Visu modified DCM
+tmp <- modified_DCMprofiles[modified_DCMprofiles$id==i,]#gappy data, no interpolation
+depthindex <- which.min(tmp$depth <= 100)
+off_fluo <- tmp$fluo[which.min(tmp$fluo[1:depthindex])]
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex]-off_fluo)
+x <- tab$x
+plot(y~x, data=tab, type="l", lwd = 2)
+lines(x = tab$x, fgauss(x,tmp$Fsurf[1], tmp$Zdemi[1],
+                        tmp$Fmax[1], tmp$Zmax[1], tmp$dz[1]),
+      col=4, add=T, xlim=range(tab$x), lwd = 2)
+i <- i + 1
+
+
+############################################################
+######################## GRAPHICS ##########################
+############################################################
+ 
 #Density graphics -------
 densitygaussianprofilesdf2<-ddply(densitygaussianprofilesdf,~month, transform, season=1*(month %in% c(12,1,2))+
                                     2*(month %in% c(3,4,5 ))+
