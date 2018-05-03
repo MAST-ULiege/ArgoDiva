@@ -1188,18 +1188,38 @@ TOTAL_DCM_DEPTH_RHO <- cbind(sub_TOTAL_DCM, sub_TOTAL_RHO$rho_dcm)
 ######################## GRAPHICS ##########################
 ############################################################
 
+# Normalize data
+normalize <- function(data){
+  data <- (data - min(data, na.rm = T))/(max(data, na.rm = T) - min(data, na.rm = T))
+}
 
- 
+# NORMALIZED DATASETS
+
+#DCMprofiles
+
+NORM_DCM <- normalize(DCMprofiles$fluo)
+DCMprofiles2 <- cbind(DCMprofiles, NORM_DCM)
+
+NORM_modified_DCM <- normalize(modified_DCMprofiles$fluo)
+modified_DCMprofiles2 <- cbind(modified_DCMprofiles$fluo)
+
+NORM_TOT_DCM <- normalize(TOTAL_DCM_PROFILES$fluo)
+TOTAL_DCM_PROFILES2 <- cbind(TOTAL_DCM_PROFILES, NORM_TOT_DCM)
+
+NORM_TOT_RHO <- normalize(TOTAL_RHO_PROFILES$FLUO_ADJUSTED)
+TOTAL_RHO_PROFILES2 <- cbind(TOTAL_RHO_PROFILES, NORM_TOT_RHO)
+
+
+# Skype Marilaure
+# Faire les trucs de MLD min et Max (cfr Navarro) + regarder la PAR (1 et 10%)
 
 #Density graphics -------
-forgraph<-ddply(rho_DCM_densityprofiledf,~month, transform, season=1*(month %in% c(12,1,2))+
-                                    2*(month %in% c(3,4,5 ))+
-                                    3*(month %in% c(6,7,8 ))+
-                                    4*(month %in% c(9,10,11 )))
+
 
 #Temporal evolution for 2017
-tmp <- rho_DCM_densityprofiledf2[rho_DCM_densityprofiledf2$year == 2017,]
-Per1 <- tmp[tmp$DOY <= 10,]
+tmp <- TOTAL_RHO_PROFILES2[TOTAL_RHO_PROFILES2$year == 2017,]
+#tmp <- TOTAL_RHO_PROFILES2
+Per1 <- tmp[tmp$DOY <= 30,]
 Per2 <- tmp[tmp$DOY >= 30 & tmp$DOY <= 40,]
 Per3 <- tmp[tmp$DOY >= 60 & tmp$DOY <= 70,]
 Per4 <- tmp[tmp$DOY >= 90 & tmp$DOY <= 100,]
@@ -1234,10 +1254,10 @@ perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar
                                                  '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec'))
 
 #same as DepthDataExtraction
-ggplot(perioddf, aes(x=density, y=FLUO_ADJUSTED, group=juld)) +
+ggplot(perioddf, aes(x=density, y=NORM_TOT_RHO, group=juld)) +
   geom_point() + facet_grid(~group) +
-  xlab("Potential density anomaly (kg/m³)") + ylab("fluorescence (counts)") +
-  coord_flip() + scale_x_reverse()
+  xlab("Potential density anomaly (kg/m³)") + ylab("Fluorescence (rfu)") +
+  coord_flip() + scale_x_reverse() #+ ylim(0,500)
 
 #Seasonal Analysis per year
 
