@@ -18,7 +18,7 @@ library(oce)
 
 check_data <- "FLUO"
 check_mode <- "ADJUSTED"
-check_sigma <- "TEOS-10"
+check_sigma <- "TEOS10"
 check_mld <- "BIRA"
 
 #FLUORESCENCE PARAMETERS AVAILABLE IN METADATA FILES FROM EACH FLOATS
@@ -107,7 +107,7 @@ profiles <- ldply(as.list(filename),function(file){
   # => FLUO_CHLA = (CHLA / SCALE_CHLA) + DARK_CHLA
   
   #fluorescence conversion, respectively to each float
-  if (check == "FLUO"){
+  if (check_data == "FLUO"){
     if (file == "6900807_Mprof.nc"){
       chladf$value <- (chladf$value / fluo_param[[1]][1]) + fluo_param[[1]][2] 
     }
@@ -181,7 +181,7 @@ argodf <- ldply(as.list(filename), function(file){
     chladf <- ExtractVar("CHLA", FloatInfo)
   }
   
-  if (check == "FLUO"){
+  if (check_data == "FLUO"){
     if (file == "6900807_Mprof.nc"){
       chladf$value <- (chladf$value / fluo_param[[1]][1]) + fluo_param[[1]][2] 
     }
@@ -253,7 +253,7 @@ density_profiles <- ldply(as.list(filename),function(file){
   psaldf <- ExtractVar("PSAL",FloatInfo)
   psaldf$value[which(psaldf$qc == 4 | psaldf$qc == 3)] <- NA
   
-  if(check_sigma =="TEOS_10"){
+  if(check_sigma =="TEOS10"){
   #DENSITY ANOMALY BASED ON TEOS-10
   psal <- gsw_SA_from_SP(psaldf$value,psaldf$depth,psaldf$lon,psaldf$lat)
   temp <- gsw_CT_from_t(psal,tempdf$value,tempdf$depth)
@@ -763,3 +763,404 @@ modified_DCMprofiles <- transform(modified_DCMprofiles, id=as.numeric(factor(jul
 # i <- i + 1
 
 ################################ SIGMA COMPUTATION FOR DCM AND MODIFIED DCM PROFILES NOW
+
+#reorder and sort by filename for rho_DCM
+DCM <- DCM[order(DCM$file),]
+modified_DCM <- modified_DCM[order(modified_DCM$file),]
+
+#datadf is either DCM or modified_DCM
+sigma_dcm_from_depth_dcm <- function(file, borne_inf, borne_sup, datadf){
+  
+  file <- paste0(file,"_Mprof.nc")
+  ncfile <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  cycle_number <- ncvar_get(ncfile,"CYCLE_NUMBER")
+  cycle_number <- cycle_number[N_PROF]
+  
+  FloatInfo<-list(N_PROF=N_PROF,
+                  N_LEVELS=N_LEVELS,
+                  juld = juld,
+                  pres=pres,
+                  lon=lon,
+                  lat=lat,
+                  cycle_number = cycle_number)
+ 
+  tempdf <- ExtractVar("TEMP",FloatInfo)
+  tempdf$value[which(tempdf$qc == 4 | tempdf$qc == 3)] <- NA
+  psaldf <- ExtractVar("PSAL",FloatInfo)
+  psaldf$value[which(psaldf$qc == 4 | psaldf$qc == 3)] <- NA
+
+  df <- ldply(as.list(borne_inf:borne_sup), function(i){
+    
+    depth_dcm <- datadf$Zmax[i]
+    julian_day <- datadf$juld[i]
+    
+    psaltmp <- psaldf[psaldf$juld == julian_day,]
+    temptmp<- tempdf[tempdf$juld == julian_day,]
+    
+    indexdepth <- which.min(abs(temptmp$depth - depth_dcm))
+    psaltmp <- psaltmp[indexdepth,]
+    temptmp <- temptmp[indexdepth,]
+    
+    if(check_sigma =="TEOS10"){
+      #DENSITY ANOMALY BASED ON TEOS-10
+      psal <- gsw_SA_from_SP(psaltmp$value,depth_dcm,psaltmp$lon,psaltmp$lat)
+      temp <- gsw_CT_from_t(psal,temptmp$value,depth_dcm) 
+      sigma <- gsw_sigma0(psal,temp)
+    }else{
+      sigma <- swSigmaTheta(psaltmp$value,temptmp$value,temptmp$depth)
+    }
+
+    data.frame(sigma_dcm = sigma, filename = datadf$file[i],
+               lon = datadf$lon[i], lat = datadf$lat[i],
+               day = datadf$day[i], month = datadf$month[i], year = datadf$year[i],
+               DOY = datadf$DOY[i], juld = datadf$juld[i])
+  })
+}
+
+#FIRST : DCM DATA
+datadf <- DCM
+
+index_dcm <- which(duplicated(datadf$file) == FALSE)
+
+sigma_dcm1 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[1]], index_dcm[1], index_dcm[2]-1, datadf)
+sigma_dcm2 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[2]], index_dcm[2], index_dcm[3]-1, datadf)
+sigma_dcm3 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[3]], index_dcm[3], index_dcm[4]-1, datadf)
+sigma_dcm4 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[4]], index_dcm[4], length(datadf$juld), datadf)
+sigma_dcm <- rbind(sigma_dcm1, sigma_dcm2, sigma_dcm3, sigma_dcm4)
+
+rhoNA <- which(is.na(sigma_dcm$sigma_dcm) == TRUE)
+dcm_juld_to_remove <- sigma_dcm$juld[rhoNA]#for below
+#remove NA's
+sigma_dcm <- sigma_dcm[complete.cases(sigma_dcm),]
+sigma_dcm <- transform(sigma_dcm,id=as.numeric(factor(juld)))
+sigmaDCM <- sigma_dcm
+
+#---------------------#
+
+#SECOND: MODIFIED DCM DATA
+datadf <- modified_DCM
+
+index_dcm <- which(duplicated(datadf$file) == FALSE)
+
+sigma_dcm1 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[1]], index_dcm[1], index_dcm[2]-1, datadf)
+sigma_dcm2 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[2]], index_dcm[2], index_dcm[3]-1, datadf)
+sigma_dcm3 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[3]], index_dcm[3], index_dcm[4]-1, datadf)
+sigma_dcm4 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[4]], index_dcm[4], length(datadf$juld), datadf)
+sigma_dcm <- rbind(sigma_dcm1, sigma_dcm2, sigma_dcm3, sigma_dcm4)
+
+rhoNA <- which(is.na(sigma_dcm$sigma_dcm) == TRUE)
+modified_dcm_juld_to_remove <- sigma_dcm$juld[rhoNA]#for below
+#remove NA's
+sigma_dcm <- sigma_dcm[complete.cases(sigma_dcm),]
+sigma_dcm <- transform(sigma_dcm,id=as.numeric(factor(juld)))
+
+sigma_modified_DCM <- sigma_dcm
+
+
+### DENSITY ANALYSIS ### -----------------
+
+var_average <- function(dfin){
+  dfin <- transform(dfin,id=as.numeric(factor(juld)))
+  
+  df <- ldply(as.list(1:length(unique(dfin$id))), function(i){
+    #i <- 1
+    tmp <- dfin[dfin$id == i,]
+    tmp <- tmp[order(tmp$depth),]
+    tmp2 <- aggregate(value ~ depth, data = tmp, FUN = mean)
+    #tmp <- match_df(tmp2, tmp, on="depth")
+    duplicate <- which(duplicated(tmp$depth))
+    if (length(duplicate) != 0){
+      tmp <- tmp[-duplicate,]
+    }
+    #tmp <- tmp[-duplicate,]
+    tmp$value <- tmp2$value
+    #clean (depth <0 without a QC = 4)
+    #we remove them because it can induce further issues when computing
+    #the potential density anomaly
+    tmp <- tmp[!tmp$depth < 0,]
+    #i <- i + 1
+    data.frame(tmp)
+  })
+}
+
+#Fonction qui renvoie un data frame basé sur l'anomalie de densité verticale (y axis) et la FLUO
+ExtractDensity <- function(chladf, FloatInfo){
+  
+  tempdf <- ExtractVar("TEMP",FloatInfo)
+  tempdf <- var_average(tempdf)#for averaging depth duplicates for temperature
+  tempdf$value[which(tempdf$qc == 4 | tempdf$qc == 3)] <- NA
+  psaldf <- ExtractVar("PSAL",FloatInfo)
+  psaldf <- var_average(psaldf)#for averaging depth duplicates for salinity
+  psaldf$value[which(psaldf$qc == 4 | psaldf$qc == 3)] <- NA
+  
+  subtempdf2 <- subset(tempdf, select = c("value","depth","juld","lon","lat"))
+  colnames(subtempdf2)[which(colnames(subtempdf2)=="value")]<-"TEMP"
+  subpsaldf2 <- subset(psaldf, select = c("value","depth","juld"))
+  colnames(subpsaldf2)[which(colnames(subpsaldf2)=="value")]<-"PSAL"
+  subchladf2 <- subset(chladf, select = c("fluo","depth","juld","qc"))
+  joindf <- join(subtempdf2,subpsaldf2, by = c("depth","juld"))
+  subchladf2 <- match_df(subchladf2,joindf, on = c("depth", "juld"))
+  finaldf <- join(subchladf2,joindf, by = c("depth","juld"))
+  
+  if(check_sigma =="TEOS10"){
+    #DENSITY ANOMALY BASED ON TEOS-10
+    psal <- gsw_SA_from_SP(finaldf$PSAL,finaldf$depth,finaldf$lon,finaldf$lat)
+    temp <- gsw_CT_from_t(psal,finaldf$TEMP,finaldf$depth)
+    sigma <- gsw_sigma0(psal,temp)
+  }else{
+    sigma <- swSigmaTheta(finaldf$PSAL,finaldf$TEMP,finaldf$depth)
+  }
+
+  sigmadf <- data.frame(depth       = finaldf$depth,
+                        sigma         = sigma,  
+                        fluo          = finaldf$fluo,
+                        TEMP          = temp,
+                        PSAL          = psal,
+                        juld          = finaldf$juld,
+                        day           = month.day.year(finaldf$juld,c(1,1,1950))$day,
+                        month         = month.day.year(finaldf$juld,c(1,1,1950))$month,
+                        year          = month.day.year(finaldf$juld,c(1,1,1950))$year,
+                        lon           = finaldf$lon,
+                        lat           = finaldf$lat)
+}
+
+sigma_DCM_modified_densityprofiledf<-ldply(as.list(filename),function(file){
+  
+  #Opening the file in a open-only mode
+  ncfile   <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  
+  #Dimensions
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  cycle_number <- ncvar_get(ncfile,"CYCLE_NUMBER")
+  cycle_number <- cycle_number[N_PROF]
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  
+  FloatInfo<-list(N_PROF=N_PROF,
+                  N_LEVELS=N_LEVELS,
+                  juld = juld,
+                  pres=pres,
+                  lon=lon,
+                  lat=lat,
+                  cycle_number = cycle_number
+  )
+  
+  #chladf <- profiledf[profiledf$Platform == as.numeric(unique(id)),]
+  # MODIFY HERE
+  chladf <- modified_DCMprofiles[modified_DCMprofiles$Platform == as.numeric(unique(id)),]
+  
+  #Extraction de l'anomalie de densité potentielle
+  densitydf <- ExtractDensity(chladf, FloatInfo)
+  
+  #Construction du data frame final a lieu ici
+  data.frame(depth         = densitydf$depth,
+             density       = densitydf$sigma,
+             juld          = densitydf$juld,
+             fluo          = densitydf$fluo,
+             day           = month.day.year(densitydf$juld,c(1,1,1950))$day,
+             month         = month.day.year(densitydf$juld,c(1,1,1950))$month,
+             year          = month.day.year(densitydf$juld,c(1,1,1950))$year,
+             DOY           = as.integer(strftime(as.Date(densitydf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             lon           = densitydf$lon,
+             lat           = densitydf$lat,
+             Platform      = as.numeric(unique(id)),
+             type          = "Argo")
+})
+
+sigma_DCM_densityprofiledf<-ldply(as.list(filename),function(file){
+  
+  #Opening the file in a open-only mode
+  ncfile   <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  
+  #Dimensions
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  cycle_number <- ncvar_get(ncfile,"CYCLE_NUMBER")
+  cycle_number <- cycle_number[N_PROF]
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  
+  FloatInfo<-list(N_PROF=N_PROF,
+                  N_LEVELS=N_LEVELS,
+                  juld = juld,
+                  pres=pres,
+                  lon=lon,
+                  lat=lat,
+                  cycle_number = cycle_number
+  )
+  
+
+  chladf <- DCMprofiles[DCMprofiles$Platform == as.numeric(unique(id)),]
+  
+  #Extraction de l'anomalie de densité potentielle
+  densitydf <- ExtractDensity(chladf, FloatInfo)
+  
+  #Construction du data frame final a lieu ici
+  data.frame(depth         = densitydf$depth,
+             density       = densitydf$sigma,
+             juld          = densitydf$juld,
+             fluo          = densitydf$fluo,
+             day           = month.day.year(densitydf$juld,c(1,1,1950))$day,
+             month         = month.day.year(densitydf$juld,c(1,1,1950))$month,
+             year          = month.day.year(densitydf$juld,c(1,1,1950))$year,
+             DOY           = as.integer(strftime(as.Date(densitydf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             lon           = densitydf$lon,
+             lat           = densitydf$lat,
+             Platform      = as.numeric(unique(id)),
+             type          = "Argo")
+})
+
+
+#pour supprimer les doublons qui apparaissent
+sigma_DCM_densityprofiledf <- unique(sigma_DCM_densityprofiledf)
+sigma_DCM_modified_densityprofiledf <- unique(sigma_DCM_modified_densityprofiledf)
+#Assign a profile number according to the (unique due to two decimals) julian day 
+sigma_DCM_densityprofiledf <- transform(sigma_DCM_densityprofiledf,id=as.numeric(factor(juld)))
+sigma_DCM_modified_densityprofiledf <- transform(sigma_DCM_modified_densityprofiledf,id=as.numeric(factor(juld)))
+
+#REMOVE PROFILES FOR WHICH JULD HAS TO BE REMOVED BECAUSE RHO COULD NOT 
+# BE COMPUTED WITH CERTAINTY
+# CHECK THAT AFTER IT IS WELL 228 AND 183
+
+#DCM cleaning
+for (i in 1:length(dcm_juld_to_remove)){
+  sigma_DCM_densityprofiledf <- sigma_DCM_densityprofiledf[!(sigma_DCM_densityprofiledf$juld == dcm_juld_to_remove[i]),]
+  DCMprofiles <- DCMprofiles[!(DCMprofiles$juld == dcm_juld_to_remove[i]),]
+  DCM <- DCM[!DCM$juld == dcm_juld_to_remove[i],]
+}
+
+sigma_DCM_densityprofiledf <- transform(sigma_DCM_densityprofiledf,id=as.numeric(factor(juld)))
+DCMprofiles <- transform(DCMprofiles, id = as.numeric(factor(juld)))
+DCM <- transform(DCM, id = as.numeric(factor(juld)))
+
+#Modified DCM cleaning
+for (i in 1:length(modified_dcm_juld_to_remove)){
+  sigma_DCM_modified_densityprofiledf <- sigma_DCM_modified_densityprofiledf[!(sigma_DCM_modified_densityprofiledf$juld == modified_dcm_juld_to_remove[i]),]
+  modified_DCMprofiles <- modified_DCMprofiles[!(modified_DCMprofiles$juld == modified_dcm_juld_to_remove[i]),]
+  modified_DCM <- modified_DCM[!(modified_DCM$juld == modified_dcm_juld_to_remove[i]),]
+}
+
+sigma_DCM_modified_densityprofiledf <- transform(sigma_DCM_modified_densityprofiledf,id=as.numeric(factor(juld)))
+modified_DCMprofiles <- transform(modified_DCMprofiles, id = as.numeric(factor(juld)))
+modified_DCM <- transform(modified_DCM, id = as.numeric(factor(juld)))
+
+TOTAL_DCM_PROFILES <- rbind(DCMprofiles, modified_DCMprofiles)
+TOTAL_DCM_PROFILES <- transform(TOTAL_DCM_PROFILES,id=as.numeric(factor(juld)))
+TOTAL_DCM <- rbind(DCM, modified_DCM)
+TOTAL_DCM <- transform(TOTAL_DCM, id = as.numeric(factor(juld)))
+TOTAL_DCM <- TOTAL_DCM[order(TOTAL_DCM$id),]
+TOTAL_SIGMA_PROFILES <- rbind(sigma_DCM_densityprofiledf, sigma_DCM_modified_densityprofiledf)
+TOTAL_SIGMA_PROFILES <- transform(TOTAL_SIGMA_PROFILES, id = as.numeric(factor(juld)))
+TOTAL_SIGMA_PROFILES <- TOTAL_SIGMA_PROFILES[order(TOTAL_SIGMA_PROFILES$id),]
+TOTAL_SIGMA <- rbind(sigmaDCM, sigma_modified_DCM)
+TOTAL_SIGMA <- transform(TOTAL_SIGMA, id = as.numeric(factor(juld)))
+TOTAL_SIGMA <- TOTAL_SIGMA[order(TOTAL_SIGMA$id),]
+
+
+TOTAL_DCM_PROFILES <- ddply(TOTAL_DCM_PROFILES,~month, transform, season=1*(month %in% c(12,1,2))+
+                              2*(month %in% c(3,4,5 ))+
+                              3*(month %in% c(6,7,8 ))+
+                              4*(month %in% c(9,10,11 )))
+
+TOTAL_DCM <- ddply(TOTAL_DCM,~month, transform, season=1*(month %in% c(12,1,2))+
+                     2*(month %in% c(3,4,5 ))+
+                     3*(month %in% c(6,7,8 ))+
+                     4*(month %in% c(9,10,11 )))
+
+TOTAL_SIGMA_PROFILES <- ddply(TOTAL_SIGMA_PROFILES,~month, transform, season=1*(month %in% c(12,1,2))+
+                              2*(month %in% c(3,4,5 ))+
+                              3*(month %in% c(6,7,8 ))+
+                              4*(month %in% c(9,10,11 )))
+
+TOTAL_SIGMA <- ddply(TOTAL_SIGMA,~month, transform, season=1*(month %in% c(12,1,2))+
+                     2*(month %in% c(3,4,5 ))+
+                     3*(month %in% c(6,7,8 ))+
+                     4*(month %in% c(9,10,11 )))
+
+#TEXT FILES creation FOR DIVA
+
+# DCM ONLY
+
+subDCM <- subset(DCM, select = c("lon", "lat", "juld", "Zmax","DOY", "year",
+                                 "month", "day", "file"))
+sub_sigmaDCM <- subset(sigmaDCM, select = c("lon", "lat", "juld", "sigma_dcm","DOY", "year",
+                                        "month", "day", "filename"))
+
+dcm_sigma_depth <- cbind(subDCM, sub_sigmaDCM$rho_sigma)
+
+# write.table(subDCM, file="TRUE_DCM_DEPTH.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(sub_rhoDCM, file="TRUE_DCM_RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(dcm_rho_depth, file="TRUE_DCM_DEPTH&RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+
+# MODIFIED DCM ONLY
+
+sub_modified_DCM <- subset(modified_DCM, select = c("lon", "lat", "juld", "Zmax","DOY", "year",
+                                                    "month", "day", "file"))
+sub_sigma_modified_DCM <- subset(sigma_modified_DCM, select = c("lon", "lat", "juld", "sigma_dcm","DOY", "year",
+                                                            "month", "day", "filename"))
+
+modified_dcm_sigma_depth <- cbind(sub_modified_DCM, sub_sigma_modified_DCM$sigma_dcm)
+
+# write.table(sub_modified_DCM, file="MODIFIED_DCM_DEPTH.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(sub_rho_modified_DCM, file="MODIFIED_DCM_RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(modified_dcm_rho_depth, file="MODIFIED_DCM_DEPTH&RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#  row.names = FALSE, col.names = FALSE)
+
+# ALL
+
+sub_TOTAL_DCM <- subset(TOTAL_DCM, select = c("lon", "lat", "juld", "Zmax","DOY", "year",
+                                              "month", "day", "file"))
+
+sub_TOTAL_SIGMA <- subset(TOTAL_SIGMA, select = c("lon", "lat", "juld", "sigma_dcm","DOY", "year",
+                                              "month", "day", "filename"))
+
+TOTAL_DCM_DEPTH_SIGMA <- cbind(sub_TOTAL_DCM, sub_TOTAL_SIGMA$sigma_dcm)
+
+# write.table(sub_TOTAL_DCM, file="TOTAL_DCM_DEPTH.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(sub_TOTAL_RHO, file="TOTAL_DCM_RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+# write.table(TOTAL_DCM_DEPTH_RHO, file="TOTAL_DCM_DEPTH&RHO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+
+NORM_DCM <- normalize(DCMprofiles$fluo)
+DCMprofiles2 <- cbind(DCMprofiles, NORM_DCM)
+
+NORM_modified_DCM <- normalize(modified_DCMprofiles$fluo)
+modified_DCMprofiles2 <- cbind(modified_DCMprofiles$fluo)
+
+NORM_TOT_DCM <- normalize(TOTAL_DCM_PROFILES$fluo)
+TOTAL_DCM_PROFILES2 <- cbind(TOTAL_DCM_PROFILES, NORM_TOT_DCM)
+
+NORM_TOT_RHO <- normalize(TOTAL_RHO_PROFILES$FLUO_ADJUSTED)
+TOTAL_RHO_PROFILES2 <- cbind(TOTAL_RHO_PROFILES, NORM_TOT_RHO)
+
+#USE FOR DCM PROFILES ONLY (meaning no MODIFIED_DCM)
+NORM_RHO_DCM <- normalize(rho_DCM_densityprofiledf$FLUO_ADJUSTED)
+RHOprofiles2 <- cbind(rho_DCM_densityprofiledf, NORM_RHO_DCM)
+
+
