@@ -680,16 +680,16 @@ t3 <- which(HSCdf$Category == "Modified_DCM")
 t4 <- which(HSCdf$Category == "Other")
 
 #CHECK VISU
-j <- 1
-i <- t3[j]
-tmp <- gaussianprofdf[gaussianprofdf$id==i,]
-depthindex <- which.min(tmp$depth <= 100)
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
-x <- tab$x
-plot(y~x, data=tab, type="l", lwd = 2, main=i, sub = 'test')
-tmp2 <- approx(tab$x,tab$y, method="linear")
-i <- i + 1
-j <- j + 1
+# j <- 1
+# i <- t3[j]
+# tmp <- gaussianprofdf[gaussianprofdf$id==i,]
+# depthindex <- which.min(tmp$depth <= 100)
+# tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
+# x <- tab$x
+# plot(y~x, data=tab, type="l", lwd = 2, main=i, sub = 'test')
+# tmp2 <- approx(tab$x,tab$y, method="linear")
+# i <- i + 1
+# j <- j + 1
 
 #TEMPORAL STATS ON PSEUDO GAUSSIAN PROFILES
 temporal_stats <- cbind(gaussdata, HSCdf)
@@ -848,19 +848,19 @@ datadf <- modified_DCM
 
 index_dcm <- which(duplicated(datadf$file) == FALSE)
 
-sigma_dcm1 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[1]], index_dcm[1], index_dcm[2]-1, datadf)
-sigma_dcm2 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[2]], index_dcm[2], index_dcm[3]-1, datadf)
-sigma_dcm3 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[3]], index_dcm[3], index_dcm[4]-1, datadf)
-sigma_dcm4 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[4]], index_dcm[4], length(datadf$juld), datadf)
-sigma_dcm <- rbind(sigma_dcm1, sigma_dcm2, sigma_dcm3, sigma_dcm4)
+sigma_mod_dcm1 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[1]], index_dcm[1], index_dcm[2]-1, datadf)
+sigma_mod_dcm2 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[2]], index_dcm[2], index_dcm[3]-1, datadf)
+sigma_mod_dcm3 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[3]], index_dcm[3], index_dcm[4]-1, datadf)
+sigma_mod_dcm4 <- sigma_dcm_from_depth_dcm(datadf$file[index_dcm[4]], index_dcm[4], length(datadf$juld), datadf)
+sigma_mod_dcm <- rbind(sigma_mod_dcm1, sigma_mod_dcm2, sigma_mod_dcm3, sigma_mod_dcm4)
 
-rhoNA <- which(is.na(sigma_dcm$sigma_dcm) == TRUE)
-modified_dcm_juld_to_remove <- sigma_dcm$juld[rhoNA]#for below
+rhoNA <- which(is.na(sigma_mod_dcm$sigma_dcm) == TRUE)
+modified_dcm_juld_to_remove <- sigma_mod_dcm$juld[rhoNA]#for below
 #remove NA's
-sigma_dcm <- sigma_dcm[complete.cases(sigma_dcm),]
-sigma_dcm <- transform(sigma_dcm,id=as.numeric(factor(juld)))
+sigma_mod_dcm <- sigma_mod_dcm[complete.cases(sigma_mod_dcm),]
+sigma_mod_dcm <- transform(sigma_mod_dcm,id=as.numeric(factor(juld)))
 
-sigma_modified_DCM <- sigma_dcm
+sigma_modified_DCM <- sigma_mod_dcm
 
 
 ### DENSITY ANALYSIS ### -----------------
@@ -1099,7 +1099,7 @@ subDCM <- subset(DCM, select = c("lon", "lat", "juld", "Zmax","DOY", "year",
 sub_sigmaDCM <- subset(sigmaDCM, select = c("lon", "lat", "juld", "sigma_dcm","DOY", "year",
                                         "month", "day", "filename"))
 
-dcm_sigma_depth <- cbind(subDCM, sub_sigmaDCM$rho_sigma)
+dcm_sigma_depth <- cbind(subDCM, sub_sigmaDCM$sigma_dcm)
 
 # write.table(subDCM, file="TRUE_DCM_DEPTH.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
 #             row.names = FALSE, col.names = FALSE)
@@ -1156,11 +1156,64 @@ modified_DCMprofiles2 <- cbind(modified_DCMprofiles$fluo)
 NORM_TOT_DCM <- normalize(TOTAL_DCM_PROFILES$fluo)
 TOTAL_DCM_PROFILES2 <- cbind(TOTAL_DCM_PROFILES, NORM_TOT_DCM)
 
-NORM_TOT_RHO <- normalize(TOTAL_RHO_PROFILES$FLUO_ADJUSTED)
-TOTAL_RHO_PROFILES2 <- cbind(TOTAL_RHO_PROFILES, NORM_TOT_RHO)
+NORM_TOT_SIGMA <- normalize(TOTAL_SIGMA_PROFILES$fluo)
+TOTAL_SIGMA_PROFILES2 <- cbind(TOTAL_SIGMA_PROFILES, NORM_TOT_SIGMA)
 
 #USE FOR DCM PROFILES ONLY (meaning no MODIFIED_DCM)
-NORM_RHO_DCM <- normalize(rho_DCM_densityprofiledf$FLUO_ADJUSTED)
-RHOprofiles2 <- cbind(rho_DCM_densityprofiledf, NORM_RHO_DCM)
+NORM_SIGMA_DCM <- normalize(sigma_DCM_densityprofiledf$fluo)
+SIGMAprofiles2 <- cbind(sigma_DCM_densityprofiledf, NORM_SIGMA_DCM)
 
+tmp <- TOTAL_SIGMA_PROFILES2[TOTAL_SIGMA_PROFILES2$year == 2017,]
+# tmp <- TOTAL_DCM_PROFILES2[TOTAL_DCM_PROFILES2$year == 2017,]
+Per1 <- tmp[tmp$DOY <= 30,]
+Per2 <- tmp[tmp$DOY >= 30 & tmp$DOY <= 40,]
+Per3 <- tmp[tmp$DOY >= 60 & tmp$DOY <= 70,]
+Per4 <- tmp[tmp$DOY >= 90 & tmp$DOY <= 100,]
+Per5 <- tmp[tmp$DOY >= 120 & tmp$DOY <= 130,]
+Per6 <- tmp[tmp$DOY >= 150 & tmp$DOY <= 160,]
+Per7 <- tmp[tmp$DOY >= 180 & tmp$DOY <= 190,]
+Per8 <- tmp[tmp$DOY >= 210 & tmp$DOY <= 220,]
+Per9 <- tmp[tmp$DOY >= 240 & tmp$DOY <= 250,]
+Per10 <- tmp[tmp$DOY >= 270 & tmp$DOY <= 280,]
+Per11 <- tmp[tmp$DOY >= 300 & tmp$DOY <= 310,]
+Per12 <- tmp[tmp$DOY >= 330 & tmp$DOY <= 366,]
 
+Per1$group <- c("1/10Jan")
+Per2$group <- c("30Jan/9Feb")
+Per3$group <- c("1/11Mar")
+Per4$group <- c("31Mar/10Apr")
+Per5$group <- c("30Apr/10May")
+Per6$group <- c("30May/9Jun")
+Per7$group <- c("29Jun/9Jul")
+Per8$group <- c("29Jul/8Aug")
+Per9$group <- c("28Aug/7Sep")
+Per10$group <- c("27Sep/7Oct")
+Per11$group <- c("27Oct/6Nov")
+Per12$group <- c("26Nov/31Dec")
+
+perioddf <- rbind(Per1, Per2, Per3, Per4, Per5, Per6, Per7, Per8, Per9, Per10, Per11, Per12)
+
+#ordering facet
+perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar',
+                                                 '31Mar/10Apr','30Apr/10May','30May/9Jun',
+                                                 '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
+                                                 '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec'))
+
+mld_model <- read.table("/home/flo/R/TFE/tfe/reanalysis_V4/MLD_analysis.txt",
+                        header=T, sep="")
+mld_2017 <- mld_model[1,]
+mld_2016 <- mld_model[2,]
+mld_2015 <- mld_model[3,]
+mld_2014 <- mld_model[4,]
+
+ggplot(perioddf, aes(x=NORM_TOT_SIGMA, y=density, group=juld)) +
+  geom_point(size = 0.5) + facet_grid(~group) +
+  ylab("Potential density anomaly (kg/m³)") + xlab("Fluorescence (rfu)") +
+  scale_y_reverse() + 
+  geom_hline(yintercept=mld_2017$MLD_MIN_ARGO, linetype="dashed") +
+  geom_hline(yintercept=mld_2017$MLD_MAX_ARGO, linetype="dashed") +
+  annotate("rect", xmin=-Inf, xmax = Inf, ymin = mld_2017$MLD_MIN_ARGO,
+           ymax = mld_2017$MLD_MAX_ARGO, fill = "yellow",
+           alpha = .5, color = NA) + 
+  geom_hline(yintercept = mld_2017$MLD_MAX_MODEL, 
+             colour ="red")
