@@ -1217,3 +1217,186 @@ ggplot(perioddf, aes(x=NORM_TOT_SIGMA, y=density, group=juld)) +
            alpha = .5, color = NA) + 
   geom_hline(yintercept = mld_2017$MLD_MAX_MODEL, 
              colour ="red")
+
+
+########## PAR ISOLUMES COMPUTATIONS ##########
+
+PAR_files <- c("6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
+
+PAR_profiles <- ldply(as.list(PAR_files),function(file){
+  
+  ncfile   <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  
+  #Dimensions
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  
+  FloatInfo <- list(N_PROF=N_PROF,
+                    N_LEVELS=N_LEVELS,
+                    juld=juld,
+                    pres=pres,
+                    lon=lon,
+                    lat=lat)
+  
+  pardf <- ExtractVar("DOWNWELLING_PAR", FloatInfo) 
+
+
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  
+  data.frame(depth    = pardf$depth,
+             juld     = pardf$juld,
+             par     = pardf$value,
+             qc       = pardf$qc,
+             day      = month.day.year(pardf$juld,c(1,1,1950))$day,
+             month    = month.day.year(pardf$juld,c(1,1,1950))$month,
+             year     = month.day.year(pardf$juld,c(1,1,1950))$year,
+             DOY      = as.integer(strftime(as.Date(pardf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             lon      = pardf$lon,
+             lat      = pardf$lat,
+             Platform = as.numeric(unique(id)),
+             type     = "Argo")
+})
+
+#YEAR ANALYSIS
+YEARPAR <- 2017
+
+year_par_profiles <- PAR_profiles[PAR_profiles$year == YEARPAR,]
+year_par_profiles <- transform(year_par_profiles,id=as.numeric(factor(juld)))
+
+isolumes <- ldply(as.list(1:length(unique(year_par_profiles$juld))), function(i){
+  tmp <- year_par_profiles[year_par_profiles$id == i,]
+  par_surf <- tmp$par[1]
+  p10 <- tmp$depth[which.max(tmp$par <= par_surf/10)]
+  p1 <- tmp$depth[which.max(tmp$par <= par_surf/100)]
+  data.frame(par_surf = par_surf, iso10 = p10, iso1 = p1,
+             DOY = tmp$DOY[1])
+})
+
+tmp <- TOTAL_DCM_PROFILES2[TOTAL_DCM_PROFILES2$year == 2017,]
+
+crit_depth <- 50
+
+#depth only between 0 and 100m
+tmp <- ddply(TOTAL_DCM_PROFILES2,~juld,summarize,
+                   depth = depth[which(depth <= crit_depth)],
+                   DOY = DOY[which(depth <= crit_depth)],
+                   fluo = fluo[which(depth <= crit_depth)],
+                   juld = juld[which(depth <= crit_depth)])
+
+# tmp <- TOTAL_DCM_PROFILES2[TOTAL_DCM_PROFILES2$year == 2017,]
+Per1 <- tmp[tmp$DOY <= 30,]
+Per2 <- tmp[tmp$DOY >= 30 & tmp$DOY <= 40,]
+Per3 <- tmp[tmp$DOY >= 60 & tmp$DOY <= 70,]
+Per4 <- tmp[tmp$DOY >= 90 & tmp$DOY <= 100,]
+Per5 <- tmp[tmp$DOY >= 120 & tmp$DOY <= 130,]
+Per6 <- tmp[tmp$DOY >= 150 & tmp$DOY <= 160,]
+Per7 <- tmp[tmp$DOY >= 180 & tmp$DOY <= 190,]
+Per8 <- tmp[tmp$DOY >= 210 & tmp$DOY <= 220,]
+Per9 <- tmp[tmp$DOY >= 240 & tmp$DOY <= 250,]
+Per10 <- tmp[tmp$DOY >= 270 & tmp$DOY <= 280,]
+Per11 <- tmp[tmp$DOY >= 300 & tmp$DOY <= 310,]
+Per12 <- tmp[tmp$DOY >= 330 & tmp$DOY <= 366,]
+
+Per1$group <- c("1/10Jan")
+Per2$group <- c("30Jan/9Feb")
+Per3$group <- c("1/11Mar")
+Per4$group <- c("31Mar/10Apr")
+Per5$group <- c("30Apr/10May")
+Per6$group <- c("30May/9Jun")
+Per7$group <- c("29Jun/9Jul")
+Per8$group <- c("29Jul/8Aug")
+Per9$group <- c("28Aug/7Sep")
+Per10$group <- c("27Sep/7Oct")
+Per11$group <- c("27Oct/6Nov")
+Per12$group <- c("26Nov/31Dec")
+
+perioddf <- rbind(Per1, Per2, Per3, Per4, Per5, Per6, Per7, Per8, Per9, Per10, Per11, Per12)
+
+doy1 <- unique(Per1$DOY)
+doy2 <- unique(Per2$DOY)
+doy3 <- unique(Per3$DOY)
+doy4 <- unique(Per4$DOY)
+doy5 <- unique(Per5$DOY)
+doy6 <- unique(Per6$DOY)
+doy7 <- unique(Per7$DOY)
+doy8 <- unique(Per8$DOY)
+doy9 <- unique(Per9$DOY)
+doy10 <- unique(Per10$DOY)
+doy11 <- unique(Per11$DOY)
+doy12 <- unique(Per12$DOY)
+
+doy1PAR <- isolumes[isolumes$DOY %in% doy1,]
+doy2PAR <- isolumes[isolumes$DOY %in% doy2,]
+doy3PAR <- isolumes[isolumes$DOY %in% doy3,]
+doy4PAR <- isolumes[isolumes$DOY %in% doy4,]
+doy5PAR <- isolumes[isolumes$DOY %in% doy5,]
+doy6PAR <- isolumes[isolumes$DOY %in% doy6,]
+doy7PAR <- isolumes[isolumes$DOY %in% doy7,]
+doy8PAR <- isolumes[isolumes$DOY %in% doy8,]
+doy9PAR <- isolumes[isolumes$DOY %in% doy9,]
+doy10PAR <- isolumes[isolumes$DOY %in% doy10,]
+doy11PAR <- isolumes[isolumes$DOY %in% doy11,]
+doy12PAR <- isolumes[isolumes$DOY %in% doy12,]
+
+#compute mean iso 10% et 1% 
+doy1meaniso <- c(mean(doy1PAR$iso10), mean(doy1PAR$iso1))
+doy2meaniso <- c(mean(doy2PAR$iso10), mean(doy2PAR$iso1))
+doy3meaniso <- c(mean(doy3PAR$iso10), mean(doy3PAR$iso1))
+doy4meaniso <- c(mean(doy4PAR$iso10), mean(doy4PAR$iso1))
+doy5meaniso <- c(mean(doy5PAR$iso10), mean(doy5PAR$iso1))
+doy6meaniso <- c(mean(doy6PAR$iso10), mean(doy6PAR$iso1))
+doy7meaniso <- c(mean(doy7PAR$iso10), mean(doy7PAR$iso1))
+doy8meaniso <- c(mean(doy8PAR$iso10), mean(doy8PAR$iso1))
+doy9meaniso <- c(mean(doy9PAR$iso10), mean(doy9PAR$iso1))
+doy10meaniso <- c(mean(doy10PAR$iso10), mean(doy10PAR$iso1))
+doy11meaniso <- c(mean(doy11PAR$iso10), mean(doy11PAR$iso1))
+doy12meaniso <- c(mean(doy12PAR$iso10), mean(doy12PAR$iso1))
+
+NORM_TOT_DCM_DEPTH <- normalize(perioddf$fluo)
+perioddf2 <- cbind(perioddf, NORM_TOT_DCM_DEPTH)
+
+index_group <- which(duplicated(perioddf$group) == FALSE)
+
+alliso10 <- as.data.frame(c(doy1meaniso[1], doy2meaniso[1],doy3meaniso[1],
+                            doy4meaniso[1],doy5meaniso[1],doy6meaniso[1],
+                            doy7meaniso[1],doy8meaniso[1],doy9meaniso[1],
+                            doy10meaniso[1],doy11meaniso[1],doy12meaniso[1]))
+colnames(alliso10) <- "iso10"
+alliso1 <- as.data.frame(c(doy1meaniso[2], doy2meaniso[2],doy3meaniso[2],
+                            doy4meaniso[2],doy5meaniso[2],doy6meaniso[2],
+                            doy7meaniso[2],doy8meaniso[2],doy9meaniso[2],
+                            doy10meaniso[2],doy11meaniso[2],doy12meaniso[2]))
+colnames(alliso1) <- "iso1"
+                  
+#ordering facet
+perioddf$group = factor(perioddf$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar',
+                                                 '31Mar/10Apr','30Apr/10May','30May/9Jun',
+                                                 '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
+                                                 '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec'))
+
+ggplot(perioddf2, aes(x=NORM_TOT_DCM_DEPTH, y=depth, group=juld)) +
+  geom_point(size = 0.5) + facet_grid(~group) +
+  ylab("Depth (m)") + xlab("Fluorescence (rfu)") +
+  scale_y_reverse() +
+  geom_hline(data = data.frame(yint=as.vector(alliso10$iso10), 
+                               group=c('1/10Jan','30Jan/9Feb','1/11Mar',
+                                '31Mar/10Apr','30Apr/10May','30May/9Jun',
+                                 '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
+                             '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec')),
+             aes(yintercept=yint), colour = "red") +
+  geom_hline(data = data.frame(yint=as.vector(alliso1$iso1), 
+                               group=c('1/10Jan','30Jan/9Feb','1/11Mar',
+                                       '31Mar/10Apr','30Apr/10May','30May/9Jun',
+                                       '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
+                                       '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec')),
+             aes(yintercept=yint), colour = "green")
+
+ 
+
+
+
+  
