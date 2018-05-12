@@ -20,7 +20,9 @@ ArgoSelect <- function(selectCriterium){
     argodflist<-lapply(as.list(filenames),function(file){
       
       #Opening the file in a open-only mode
-      ncfile   <<- nc_open(paste0(dataDir,file), write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+      ncfile   <<- nc_open(paste0(dataDir,file), write = FALSE, verbose = FALSE, suppress_dimvals = FALSE)
+      
+      print(file)
       
       #Dimensions
       N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
@@ -37,16 +39,25 @@ ArgoSelect <- function(selectCriterium){
                       lon=lon,
                       lat=lat)
       
-      dflist <-lapply (varList, function (V){
-        vstringadj<-paste0(V,'_ADJUSTED')
-        vardf <- ExtractVar(vstringadj,FloatInfo)
-        if (all(is.na(vardf)) == TRUE) {   # is "= TRUE" needed ? 
-          vardf <- ExtractVar(V,FloatInfo)
-        }  
-      })
+      # Testing first the presence of all vars
+
+      dflist <-try_default(
+        lapply (varList, function (V){
+          print(V)
+          vstringadj<-paste0(V,'_ADJUSTED')
+          vardf <- ExtractVar(vstringadj,FloatInfo)
+          if (all(is.na(vardf))) {
+            vardf <- ExtractVar(V,FloatInfo)
+          }
+          # When ADJUSTED variable is available, it takes the place of the nominal variable
+          vardf$variable<-V
+          return(vardf)
+        }),
+        list(data.frame(value=NA,qc=NA,alevel=NA,depth=NA,aprofile=NA,variable=NA,juld=1000,lon=NA,lat=NA))
+      )
       
       dftot <- do.call(rbind, dflist)
-
+      
       id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
       
       dftot$Platform <- unique(id)
@@ -55,7 +66,7 @@ ArgoSelect <- function(selectCriterium){
       dftot$year     <- month.day.year(dftot$juld,c(1,1,1950))$year
       
       return(dftot)
-     })
+    })
     return (do.call(rbind,argodflist))
   })
 }
