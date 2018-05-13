@@ -356,18 +356,6 @@ FDOM_OR_MINIMUM_OFFSET_CORRECTION <- ldply(as.list(1:length(unique(profiles$id))
 #REPLACE CORRECTED VALUES
 profiles[,3] <- FDOM_OR_MINIMUM_OFFSET_CORRECTION$fluo_cor
 
-# #CHECK NPQ
-# 
-tmp <- save3[save3$id == i,]
-depthindex <- which.min(tmp$depth <= 100)
-tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
-x <- tab$x
-plot(y~x, data=tab, type="l", lwd = 2)
-tmp2 <- profiles[profiles$id == i,]
-lines(x = tab$x, tmp2$fluo[1:depthindex],col=2, add=T, xlim=range(tab$x), lwd = 2)
-i <- i + 1
-
-
 quenching_correction <- function(fluo,depth,MLD) {
   if(is.na(MLD) == FALSE){
     f <- fluo[!is.na(fluo) & depth <= MLD]
@@ -405,14 +393,9 @@ gaussiandf <- ldply(as.list(1:length(unique(profiles$id))), function(i){
   
   tmp <- profiles[profiles$id==i,]
   depthindex <- which.min(tmp$depth <= 100)
-  
-  if(check_data == "FLUO"){
-    tmp$fluo <- normalize(tmp$fluo)
-  }
-  
   tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
   maxindex <- which.max(tmp$fluo)
-  
+
   #Parameters estimation
   nonNAindex <- which(!is.na(tmp$fluo))
   firstnonNA <- nonNAindex[1]
@@ -474,15 +457,9 @@ gaussiandf <- ldply(as.list(1:length(unique(profiles$id))), function(i){
 })
 
 sigmoidf <- ldply(as.list(1:length(unique(profiles$id))), function(i){
-  #  sigmoidf <- ldply(as.list(1:500), function(i){
   
   tmp <- profiles[profiles$id==i,]
   depthindex <- which.min(tmp$depth <= 100)
-  
-  if(check_data == "FLUO"){
-    tmp$fluo <- normalize(tmp$fluo)
-  }
-  
   tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
   maxindex <- which.max(tmp$fluo)
   
@@ -545,11 +522,8 @@ sigmoidf <- ldply(as.list(1:length(unique(profiles$id))), function(i){
 })
 
 
-# i <- 1
+# #CHECK VISU
 # tmp <- profiles[profiles$id==i,]#gappy data, no interpolation
-# if(check_data == "FLUO"){
-#   tmp$fluo <- normalize(tmp$fluo)
-# }
 # depthindex <- which.min(tmp$depth <= 100)
 # tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
 # x <- tab$x
@@ -564,20 +538,6 @@ sigmoidf <- ldply(as.list(1:length(unique(profiles$id))), function(i){
 Rcoefdf <- ldply(as.list(1:length(unique(profiles$id))), function(i){
   tmp <- profiles[profiles$id==i,]
   depthindex <- which.min(tmp$depth <= 100)
-  
-  # if(check_data == "FLUO"){
-  #   off_fluo <- tmp$fluo[which.min(tmp$fluo[1:depthindex])]
-  #   tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex]-off_fluo)
-  #   maxindex <- which.max(tmp$fluo)
-  # }else{
-  #   tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
-  #   maxindex <- which.max(tmp$fluo)
-  # }
-  
-  if(check_data == "FLUO"){
-    tmp$fluo <- normalize(tmp$fluo)
-  }
-  
   tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
   maxindex <- which.max(tmp$fluo)
   
@@ -701,17 +661,6 @@ gaussdata <- transform(gaussdata,id=as.numeric(factor(juld)))
 HSCdf <- ldply(as.list(1:length(unique(gaussianprofdf$juld))), function(i){
   
   tmp <- gaussianprofdf[gaussianprofdf$id == i,]
-  
-  if(check_data == "FLUO"){
-    tmp$fluo <- normalize(tmp$fluo)
-    check_visu <- c(8,17,67,68,71,72,148,157,162,164,262,264,274,277,280,282,283,284,286,289,290,390)
-  }
-  
-  if(check_data != "FLUO"){
-    check_visu <- c(9,26,76,78,81,82,91,112,193,201,282,298,301,310,
-                    317,319,320,323,329,332,334,338,343,440,449,456)
-  }
-  
   minval <- min(tmp$fluo, na.rm = T)
   mindepth <- round(tmp$depth[which(tmp$fluo == minval)[1]])
   a <- seq(from = 0, to = mindepth, by = 10)#to take into account the increase in depth
@@ -727,12 +676,12 @@ HSCdf <- ldply(as.list(1:length(unique(gaussianprofdf$juld))), function(i){
     result <- "DCM"
   }else if(max(tmp$fluo, na.rm = T) == tmp$fluo[NonNAindex]){
     result <- "HSC"
-  }else if(i %in% check_visu ){
+  }else if(max(tmp$fluo, na.rm = T)*0.90 < tmp$fluo[NonNAindex]){
     result <- "Other"
-  }else if(!(i %in% check_visu)){
+  }
+  else{
     result <- "Modified_DCM"
   }
-  
   data.frame(Category = result, juld = tmp$juld[1], file = tmp$Platform[1])
 })
 
@@ -745,16 +694,16 @@ t3 <- which(HSCdf$Category == "Modified_DCM")
 t4 <- which(HSCdf$Category == "Other")
 
 #CHECK VISU
-# j <- 1
-# i <- t3[j]
-# tmp <- gaussianprofdf[gaussianprofdf$id==i,]
-# depthindex <- which.min(tmp$depth <= 100)
-# tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
-# x <- tab$x
-# plot(y~x, data=tab, type="l", lwd = 2, main=i, sub = tmp$month[1])
-# tmp2 <- approx(tab$x,tab$y, method="linear")
-# i <- i + 1
-# j <- j + 1
+j <- 1
+i <- t4[j]
+tmp <- gaussianprofdf[gaussianprofdf$id==i,]
+depthindex <- which.min(tmp$depth <= 100)
+tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
+x <- tab$x
+plot(y~x, data=tab, type="l", lwd = 2, main=i, sub = tmp$month[1])
+tmp2 <- approx(tab$x,tab$y, method="linear")
+i <- i + 1
+j <- j + 1
 
 #TEMPORAL STATS ON PSEUDO GAUSSIAN PROFILES
 temporal_stats <- cbind(gaussdata, HSCdf)
