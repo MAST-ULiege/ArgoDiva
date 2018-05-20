@@ -1,0 +1,698 @@
+library(ncdf4)
+library(ggplot2)
+library(plyr)
+library(reshape2)
+library(chron)
+library(viridis)
+library(TTR)
+library(minpack.lm)
+library(nls2)
+library(nlstools)
+library(data.table)
+library(gsw)
+library(gridExtra)
+library(car)
+library(oce)
+library(ggmap)
+library(ggalt)
+
+
+#CORRECTION OF XING ET AL. 2017
+ExtractVar <- function(Var,FloatInfo){
+  with(FloatInfo,{
+    # This function should return a dataframe for variable with value, qc, iprofile and ilevel
+    lvar             <- ncvar_get(ncfile,Var)
+    lvar_qc          <- ncvar_get(ncfile,paste0(Var,"_QC"))
+    lvar_qctab       <- llply(lvar_qc,function(qcstring){
+      as.numeric(unlist(strsplit(qcstring,split="")))
+    })
+    lvar_qctab<-do.call(cbind,lvar_qctab)
+    
+    lvar_dir       <- ncvar_get(ncfile,"DIRECTION")
+    lvar_direction <- llply(lvar_dir,function(dirstring){
+      strsplit(dirstring,split="")
+    })
+    lvar_direction <- unlist(lvar_direction)
+    # making dataframes, removing the NANs  
+    alevels <- 1:N_LEVELS
+    d <- ldply(as.list(1:N_PROF),function(iprof){
+      indexes <- !(is.na(lvar[,iprof])|is.na(lvar[,iprof]))
+      if(sum(indexes) == 0){
+        return (data.frame())
+      }
+      
+      data.frame(value    = lvar[indexes,iprof],
+                 qc       = as.integer(lvar_qctab[indexes,iprof]),
+                 alevel   = alevels[indexes],
+                 depth    = pres[indexes,iprof],
+                 dir      = lvar_direction[iprof],
+                 aprofile = iprof,
+                 variable = Var)
+    })
+    
+    d$juld <- juld[d$aprofile]
+    d$lon  <- lon[d$aprofile]
+    d$lat  <- lat[d$aprofile]
+    
+    return(d=d)
+  })
+}  
+
+
+cdom_floats <- c("6900807_Mprof.nc","6901866_Mprof.nc")
+
+
+cdom_profiles <- ldply(as.list(cdom_floats),function(file){
+  
+  #Opening the file in a open-only mode
+  ncfile   <<- nc_open(file, write = FALSE, verbose = FALSE, suppress_dimvals = FALSE)
+  
+  #Dimensions
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  
+  FloatInfo <- list(N_PROF=N_PROF,
+                    N_LEVELS=N_LEVELS,
+                    juld=juld,
+                    pres=pres,
+                    lon=lon,
+                    lat=lat)
+  
+ 
+  cdomdf <- ExtractVar("CDOM", FloatInfo) 
+  chladf <- ExtractVar("CHLA", FloatInfo)
+  
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  
+  show(file)
+  
+  data.frame(depth    = cdomdf$depth,
+             juld     = cdomdf$juld,
+             fluo     = chladf$value,
+             cdom     = cdomdf$value,
+             qc_cdom  = cdomdf$qc,
+             qc_chla  = chladf$qc,
+             day      = month.day.year(cdomdf$juld,c(1,1,1950))$day,
+             month    = month.day.year(cdomdf$juld,c(1,1,1950))$month,
+             year     = month.day.year(cdomdf$juld,c(1,1,1950))$year,
+             DOY      = as.integer(strftime(as.Date(cdomdf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             lon      = cdomdf$lon,
+             lat      = cdomdf$lat,
+             dir      = cdomdf$dir,
+             Platform = as.numeric(unique(id)),
+             type     = "Argo")
+})
+
+cdom_profiles <- cdom_profiles[-(which(cdom_profiles$qc_chla == 4)),] 
+cdom_profiles <- cdom_profiles[-(which(cdom_profiles$dir == "D")),]
+
+#ROW NAMES != ROW NUMBERS !!!! ---> REORDER !!
+#cdom_profiles <- cdom_profiles[order(cdom_profiles$juld),]
+rownames(cdom_profiles) <- NULL
+
+mmed <- function(x,n=5){runmed(x,n)}
+
+smoothed_fluo <- ldply(as.list(unique(cdom_profiles$juld)), function(i){
+  tmp <- cdom_profiles[cdom_profiles$juld == i,]
+  tmp <- mmed(tmp$fluo, 5)
+  data.frame(smoothed_fluo = tmp)
+})
+
+smoothed_cdom <- ldply(as.list(unique(cdom_profiles$juld)), function(i){
+  tmp <- cdom_profiles[cdom_profiles$juld == i,]
+  tmp <- mmed(tmp$cdom, 5)
+  data.frame(smoothed_cdom = tmp)
+})
+
+#REPLACE FLUO WITH SMOOTHED FLUO & CDOM
+cdom_profiles[,3] <- smoothed_fluo
+cdom_profiles[,4] <- smoothed_cdom
+
+cdom_argodf<- ddply(cdom_profiles,~juld,summarize,
+               qc_chla = qc_chla[which.max(fluo)],
+               depthmax = depth[which.max(fluo)],
+               maxvalue = fluo[which.max(fluo)],
+               depthmin = depth[which.max(fluo):length(fluo)][which.min(fluo[which.max(fluo):length(fluo)])],
+               integration = sum(fluo),
+               bottomdepth = max(depth),
+               min_depth = min(depth),
+               dir = dir[1],
+               lon=mean(lon),
+               lat=mean(lat),
+               Platform = Platform[1],
+               day = day[1], month = month[1],
+               year = year[1], DOY = DOY[1])
+
+cdom_criteriadf1 <- cdom_argodf[(cdom_argodf$min_depth > 5),]#all stuck profiles except one
+cdom_criteriadf2 <- cdom_argodf[(cdom_argodf$bottomdepth < 800),]
+cdom_criteriadf <- unique(rbind(cdom_criteriadf1, cdom_criteriadf2))
+
+#remove profiles that have been categorized as bad profiles
+for (i in 1:length(cdom_criteriadf$juld)){
+  cdom_argodf <- cdom_argodf[!(cdom_argodf$juld == cdom_criteriadf$juld[i]),]
+  cdom_profiles <- cdom_profiles[!(cdom_profiles$juld == cdom_criteriadf$juld[i]),]
+}
+
+rownames(cdom_profiles) <- NULL
+rownames(cdom_argodf) <- NULL
+cdom_profiles <- transform(cdom_profiles,id=as.numeric(factor(juld)))
+cdom_argodf <- transform(cdom_argodf,id=as.numeric(factor(juld)))
+
+#FOR CHECK MLD
+cdom_density_profiles <- ldply(as.list(cdom_floats),function(file){
+  
+  ncfile   <<- nc_open(file, write = FALSE, verbose = FALSE, suppress_dimvals = FALSE)
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  FloatInfo<-list(N_PROF=N_PROF,
+                  N_LEVELS=N_LEVELS,
+                  juld = juld,
+                  pres=pres,
+                  lon=lon,
+                  lat=lat)
+  
+  #NO ADJUSTED VALUE FOR PSAL AND TEMP FOR EACH FLOAT
+  tempdf <- ExtractVar("TEMP",FloatInfo)
+  tempdf$value[which(tempdf$qc == 4 | tempdf$qc == 3)] <- NA
+  psaldf <- ExtractVar("PSAL",FloatInfo)
+  psaldf$value[which(psaldf$qc == 4 | psaldf$qc == 3)] <- NA
+  
+    #DENSITY ANOMALY BASED ON TEOS-10
+  psal <- gsw_SA_from_SP(psaldf$value,psaldf$depth,psaldf$lon,psaldf$lat)
+  temp <- gsw_CT_from_t(psal,tempdf$value,tempdf$depth)
+  sigma <- gsw_sigma0(psal,temp)
+  
+  show(file)
+    
+  data.frame(sigma = sigma,
+             depth = tempdf$depth, 
+             juld  = tempdf$juld, 
+             dir   = tempdf$dir,
+             lon   = tempdf$lon,
+             lat   = tempdf$lat,
+             day   = month.day.year(tempdf$juld,c(1,1,1950))$day,
+             month = month.day.year(tempdf$juld,c(1,1,1950))$month,
+             year  = month.day.year(tempdf$juld,c(1,1,1950))$year,
+             DOY   = as.integer(strftime(as.Date(tempdf$juld,origin = '1950-01-01'), 
+                                         format ="%j")))#Day Of Year
+  
+})
+
+good_profiles <- cdom_argodf$juld
+
+cdom_density_profiles <- cdom_density_profiles[cdom_density_profiles$juld %in% good_profiles,]
+rownames(cdom_density_profiles) <- NULL
+cdom_density_profiles <- transform(cdom_density_profiles,id=as.numeric(factor(juld)))
+
+sigma_criteria <- 0.03
+depth_ref <- 10
+
+
+MLDdf <- ldply(as.list(1:length(unique(cdom_density_profiles$id))), function(i){
+  
+  tmp <- cdom_density_profiles[cdom_density_profiles$id == i,]
+  
+  if(all(is.na(tmp$sigma)) == TRUE){
+    MLD <- NA
+    sigma_surface <- NA
+  }else if(length(tmp$sigma[!is.na(tmp$sigma)==TRUE])>=2){
+    sigma_surface<-NA
+    sigma_surface <- approx(tmp$depth,tmp$sigma,depth_ref)$y
+  }
+  
+  if(is.na(sigma_surface) == FALSE){
+    MLD <- max(tmp$depth[tmp$sigma <= (sigma_surface + sigma_criteria)], na.rm = T)
+  }else{
+    MLD <- NA
+  }
+  
+  data.frame(sigma_surface = sigma_surface, MLD = MLD, juld = tmp$juld[1], day = month.day.year(tmp$juld[1],c(1,1,1950))$day,
+             month = month.day.year(tmp$juld[1],c(1,1,1950))$month,
+             year = month.day.year(tmp$juld[1],c(1,1,1950))$year,
+             DOY = as.integer(strftime(as.Date(tmp$juld[1],origin = '1950-01-01'), 
+                                       format ="%j")))
+})
+
+#EACH PROFILES HAS BEEN VALIDATED SO FAR ==> CALIBRATION EXERCISE STARTS NOW
+
+#FDOM-based method (Xing et al. 2017)
+
+FDOMdf <- ldply(as.list(1:length(unique(cdom_density_profiles$id))), function(i){
+
+tmp <- cdom_profiles[cdom_profiles$id == i,]
+MaxDepth <- cdom_argodf$bottomdepth[i]#Max depth of the profile
+TopDepth <- cdom_argodf$depthmin[i]#Apparent minimum 
+
+#Compute correlation between FDOM and FChla (to test the hypothesis
+#that FDOM perturbates linearly FChla at depth)
+
+#Linear regression between TopDepth and MaxDepth
+#FCHLA_MEASURED = SLOPE_FDOM * FDOM_MEASURED + C
+
+calibrange <- tmp[which(tmp$depth == TopDepth):which(tmp$depth == MaxDepth),]
+linearMod <- lm(fluo ~ cdom, data = calibrange)
+slope_fdom <- coef(linearMod)[[2]]
+C <- coef(linearMod)[[1]]
+#summary(linearMod)
+
+data.frame(slope_fdom = slope_fdom, C = C)
+})
+
+# chla_estimation <- slope_fdom*calibrange$cdom + C
+# 
+# r = 1-sum((calibrange$fluo - chla_estimation)^2)/(sum((calibrange$fluo - mean(calibrange$fluo))^2))
+# 
+# scatterplot(fluo ~ cdom, data = calibrange)
+# 
+# ggplot(calibration, aes(x=depth, y=chla, colour = origin)) +
+#   geom_point(size = 1) + 
+#   xlab("Depth (m)") + ylab("CHLA") +
+#   coord_flip() + scale_x_reverse() 
+
+
+#DESCENTE PROFILE DURING DEPLOYMENT
+maxparam <- max(count.fields("ogsbio008a_001_01_T250.csv", sep = '')) 
+launch_param <- read.csv(file = "ogsbio008a_001_01_T250.csv", sep = '', 
+                         na.strings="NA", 
+                         col.names = paste0("V", seq_len(maxparam), 
+                                            fill=TRUE), header = FALSE, stringsAsFactors = FALSE)
+
+maxparam <- max(count.fields("ogsbio008a_001_00_05.csv", sep = '')) 
+launch_descent <- read.csv(file = "ogsbio008a_001_00_05.csv", sep = '', 
+                           na.strings="NA", 
+                           col.names = paste0("V", seq_len(maxparam), 
+                                              fill=TRUE), header = TRUE,
+                           stringsAsFactors = FALSE)
+
+launch_descent <- subset(launch_descent,
+                         select = c("V1TRUE","V2TRUE","V8TRUE","V9TRUE",
+                                    "V16TRUE","V17TRUE","V19TRUE"))
+
+colnames(launch_descent) <- c("depth","date","temp","psal","PAR","chla","cdom")
+
+launch_descent <- launch_descent[which(launch_descent$date > 2.018e+13),]
+launch_descent <- launch_descent[!rowSums(is.na(launch_descent[,2:7]))==5,]
+launch_descent <- launch_descent[launch_descent$depth >= 0,]
+
+dark_chla <- as.numeric(launch_param$V38TRUE[5])
+scale_chla <- as.numeric(launch_param$V37TRUE[5])
+launch_descent$chla <- (launch_descent$chla - dark_chla)*scale_chla
+dark_cdom <- as.numeric(launch_param$V42TRUE[5])
+scale_cdom <- as.numeric(launch_param$V41TRUE[5])
+launch_descent$cdom <- (launch_descent$cdom - dark_cdom)*scale_cdom
+
+descent <- subset(launch_descent, select = c("depth","temp","psal","chla","cdom"))
+descent <- descent[!rowSums(is.na(descent[,4:5]))==2,]
+
+
+maxparam <- max(count.fields("ogsbio008a_001_00_09.csv", sep = '')) 
+launch_ascent <- read.csv(file = "ogsbio008a_001_00_09.csv", sep = '', 
+                          na.strings="NA", 
+                          col.names = paste0("V", seq_len(maxparam), 
+                                             fill=TRUE), header = TRUE,
+                          stringsAsFactors = FALSE)
+
+launch_ascent <- subset(launch_ascent,
+                        select = c("V1TRUE","V2TRUE","V8TRUE","V9TRUE",
+                                   "V16TRUE","V17TRUE","V19TRUE"))
+
+colnames(launch_ascent) <- c("depth","date","temp","psal","PAR","chla","cdom")
+
+launch_ascent <- launch_ascent[which(launch_ascent$date > 2.018e+13),]
+launch_ascent <- launch_ascent[!rowSums(is.na(launch_ascent[,2:7]))==5,]
+launch_ascent <- launch_ascent[launch_ascent$depth >= 0,]
+
+dark_chla <- as.numeric(launch_param$V38TRUE[5])
+scale_chla <- as.numeric(launch_param$V37TRUE[5])
+launch_ascent$chla <- (launch_ascent$chla - dark_chla)*scale_chla
+dark_cdom <- as.numeric(launch_param$V42TRUE[5])
+scale_cdom <- as.numeric(launch_param$V41TRUE[5])
+launch_ascent$cdom <- (launch_ascent$cdom - dark_cdom)*scale_cdom
+
+ascent <- subset(launch_ascent, select = c("depth","temp","psal","chla","cdom"))
+ascent$origin <- "ASCENT"
+ascent <- subset(ascent, select = c("depth","temp","psal","chla","cdom"))
+ascent <- ascent[!rowSums(is.na(ascent[,2:3]))==2,]
+# write.table(descent, file="descent_launch_cleaned.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = TRUE)
+
+rownames(descent) <- NULL
+rownames(ascent) <- NULL
+
+
+
+ggplot(descent, aes(x = chla, y = depth)) + geom_path() +
+  scale_y_reverse()
+
+ggplot(descent, aes(x = cdom, y = depth)) + geom_path() +
+  scale_y_reverse()
+
+#Spike test (QC test 9) 
+#initialize empty array (test <- ()) si on modifie le code un jour
+chla <- descent$chla
+spike <- sapply(3:(length(chla)-3),function(i){
+      Test_Value <- abs(chla[i]-((chla[i+1]+chla[i-1])/2)) - abs((chla[i+1]-chla[i-1])/2)
+       Threshold_Value <- abs(median(c(chla[i-2], chla[i-1], chla[i], chla[i+1], chla[i+2]), na.rm=TRUE)) +
+           abs(sd(c(chla[i-2], chla[i-1], chla[i], chla[i+1], chla[i+2]), na.rm=TRUE))
+       if (Test_Value > Threshold_Value){
+             index1 <- i
+        }
+     })
+
+  index1 <- unlist(spike)
+ 
+   #Spike test (version 2014 (+ 2016 pour meilleure explication)) PAS LE MEME !! NEGATIVE spike test
+  #positive spikes are considered as OK (non flaggée mais je peux vous assurer qu'il le faudrait sur
+  #certaines)
+  RES <- sapply(3:(length(chla)-3),function(i){
+        #plus de valeurs absolues?
+          tmp <- chla[i] - median(c(chla[i-2], chla[i-1], chla[i], chla[i+1], chla[i+2]), na.rm=TRUE)
+        })
+  
+    #RES <- sort(as.vector(RES), decreasing = F)
+    Q10 <- quantile(RES, probs = 0.1)
+  
+    spike2 <- sapply(1:(length(RES)),function(i){
+       if(RES[i] < 2*Q10)
+            index4 <- i + 2
+        })  
+ 
+   index4 <- unlist(spike2)
+   
+  index <- c(index1, index4)
+  
+#remove potentially bad value
+descent <- descent[-index,]
+
+var_average <- function(df){
+  
+  tmp <- df[order(df$depth),]
+  tmp <- tmp[!rowSums(is.na(tmp[,4:5])) == 2,]
+  tmp2 <- aggregate(chla ~ depth, data = tmp, FUN = mean)
+  tmp2b <- aggregate(chla ~ depth, data = tmp, FUN = sd, na.rm = T)
+  tmp3 <- aggregate(cdom ~ depth, data = tmp, FUN = mean)
+  tmp3b <- aggregate(cdom ~ depth, data = tmp, FUN = sd, na.rm = T)
+  duplicate <- which(duplicated(tmp$depth))
+  data.frame(depth = tmp2$depth, chla = tmp2$chla, 
+             chla_sd = tmp2b$chla, cdom = tmp3$cdom, 
+             cdom_sd = tmp3b$cdom)
+}
+
+var_average_density <- function(df){
+  
+  tmp <- df[order(df$depth),]
+  tmp <- tmp[!rowSums(is.na(tmp[,2:3])) == 2,]
+  tmp2 <- aggregate(temp ~ depth, data = tmp, FUN = mean)
+  tmp2b <- aggregate(temp ~ depth, data = tmp, FUN = sd, na.rm = T)
+  tmp3 <- aggregate(psal ~ depth, data = tmp, FUN = mean)
+  tmp3b <- aggregate(psal ~ depth, data = tmp, FUN = sd, na.rm = T)
+  duplicate <- which(duplicated(tmp$depth))
+  data.frame(depth = tmp2$depth, temp = tmp2$temp, 
+             temp_sd = tmp2b$temp, psal = tmp3$psal, 
+             psal_sd = tmp3b$psal)
+}
+
+descent <- var_average(descent)
+ascent <- var_average_density(ascent)
+
+psal <- gsw_SA_from_SP(ascent$psal,ascent$depth,29,43.1)
+temp <- gsw_CT_from_t(psal,ascent$temp, ascent$depth)
+sigma <- gsw_sigma0(psal,temp)
+sigma_surface <- approx(ascent$depth,sigma,10)$y
+ascent <- cbind(ascent, sigma)
+MLD <- max(ascent$depth[ascent$sigma <= (sigma_surface + sigma_criteria)], na.rm = T)
+
+quenching_correction <- function(fluo,depth,MLD) {
+  if(is.na(MLD) == FALSE){
+    f <- fluo[!is.na(fluo) & depth <= MLD]
+    d <- depth[!is.na(fluo) & depth <= MLD]
+    zMax <- d[which.max(f)]
+    Max <- max(f)
+    Corfluo <- fluo
+    #Criteria from Schmechtig et al. 2014
+    if(!is.na(MLD) & min(f[d<=zMax])<=(0.9*Max)) Corfluo[depth<=zMax] <- Max
+    return(Corfluo)
+  }else{
+    return(fluo)
+  }
+}
+
+
+#QUENCHING CORRECTION
+
+chla_cor_npq <- quenching_correction(descent$chla_cor1, descent$depth, MLD)
+
+descent$cdom <- mmed(descent$cdom, 5)
+descent$chla <- mmed(descent$chla, 5)
+
+ggplot(descent, aes(x = chla, y = depth)) + geom_path() +
+  scale_y_reverse()
+
+ggplot(descent, aes(x = cdom, y = depth)) + geom_path() +
+  scale_y_reverse()
+
+#250m
+rownames(descent) <- NULL
+MaxDepth <- max(descent$depth)#Max depth of the profile
+TopDepth <- descent$depth[which.min(descent$chla)]
+
+#Compute correlation between FDOM and FChla (to test the hypothesis
+#that FDOM perturbates linearly FChla at depth)
+
+#Linear regression between TopDepth and MaxDepth
+#FCHLA_MEASURED = SLOPE_FDOM * FDOM_MEASURED + C
+
+calibrange <- descent[which(descent$depth == TopDepth):which(descent$depth == MaxDepth),]
+linearMod <- lm(chla ~ cdom, data = calibrange)
+slope_fdom <- coef(linearMod)[[2]]
+C <- coef(linearMod)[[1]]
+
+chla_cor1 <- descent$chla - (slope_fdom*descent$cdom) - C
+descent <- cbind(descent, chla_cor1)
+chla_cor2 <- chla_cor_npq
+descent <- cbind(descent, chla_cor2)
+chla_cor3 <- descent$chla - (mean(FDOMdf$slope_fdom) * descent$cdom) - mean(FDOMdf$C)
+descent <- cbind(descent, chla_cor3)
+
+depth_hplc <- c(0,30,50,70,90,100,140,200,250)
+chla_hplc <- c(0.6111,0.6433,0.3090,0.0675,0.0229,0.0168,0.012,0.0032,
+               0.0035)
+hplc <- as.data.frame(cbind(depth_hplc, chla_hplc))
+
+ggplot(descent, aes(x = chla, y = depth)) + geom_path(size = 0.5) +
+  scale_y_reverse() + geom_path(data = descent, aes(x = chla_cor1, y = depth), colour = "blue", size = 0.5) +
+  geom_point(data=hplc, aes(y = depth_hplc, x = chla_hplc), colour = "red", size = 2, shape = 15) +
+  xlab(expression(Chlorophyll~a~(mg/m^3)))+ ylab("Depth (m)") + geom_path(data = descent,
+                                                                          aes(x = chla_cor3, y = depth),
+                                                                          colour = "green", size = 0.5)
+
+indexdepth <- vector()
+
+for (i in 1:length(hplc$chla)){
+  indexdepth[i] <- which.min(abs(descent$depth - hplc$depth_hplc[i]))
+}
+
+rmse_chla_vec <- descent$chla[indexdepth]
+rmse_chla_vec <- descent$chla_cor1[indexdepth]
+rmse_chla_vec <- descent$chla_cor2[indexdepth]
+rmse_chla_vec <- descent$chla_cor3[indexdepth]
+
+
+rmse = sqrt(sum((hplc$chla_hplc - rmse_chla_vec)^2)/length(hplc$depth_hplc))
+
+# #NPQ correction
+# 
+# 
+# 
+# 
+# #HPLC
+# # depth_hplc <- c(0,30,50,70,90,100,140,200,250,500,750,1000)
+# # chla_hplc <- c(0.6111,0.6433,0.3090,0.0675,0.0229,0.0168,0.012,0.0032,
+# #                0.0035,0.0023,0.0039,0.0042)
+# depth_hplc <- c(0,30,50,70,90,100,140,200,250)
+# chla_hplc <- c(0.6111,0.6433,0.3090,0.0675,0.0229,0.0168,0.012,0.0032,
+#                0.0035)
+# temp_hplc <- rep(NA, length(depth_hplc))
+# psal_hplc <- rep(NA, length(depth_hplc))
+# cdom_hplc <- rep(NA, length(depth_hplc))
+# 
+# hplcprofile <- as.data.frame(cbind(depth_hplc, temp_hplc, psal_hplc, 
+#                                    chla_hplc, cdom_hplc))
+# hplcprofile$origin <- "HPLC"
+# colnames(hplcprofile) <- c("depth","temp","psal","chla","cdom","origin")
+# 
+# ggplot(descent_avg, aes(x = chla, y = depth)) +
+#   geom_point() + scale_y_reverse() + 
+#   geom_point(data = chla_cor, aes(x = chla, y = depth, color = "red"))+
+#   geom_point(data = hplcprofile, aes(x = chla, y = depth, color = "yellow"))
+# 
+# indexdepth <- vector()
+# 
+# for (i in 1:length(hplcprofile$chla)){
+# indexdepth[i] <- which.min(abs(chla_cor$depth - hplcprofile$depth[i]))
+# }
+# 
+# rmse_chla_vec <- chla_cor$chla[indexdepth]
+# rmse_chla_vec <- descent_avg$chla[indexdepth]
+# 
+# rmse = sqrt(sum((hplcprofile$chla - rmse_chla_vec)^2)/length(hplcprofile$depth))
+# 
+# 
+# #ASCENT PROFILE 1000 M
+# path = "/home/flo/R/TFE/tfe/6903240"
+# new_float <- list.files(path = path, pattern="*.nc")
+# 
+# #plus proche du déploiement disponible jusqu'ici...
+# 
+# filetest <- new_float[7]
+# 
+# #Opening the file in a open-only mode
+# ncfile   <<- nc_open(filetest, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+# 
+# juld     <- ncvar_get(ncfile,"JULD")
+# pres     <- as.data.frame(ncvar_get(ncfile,"PRES"))
+# lon      <- ncvar_get(ncfile,"LONGITUDE")
+# lat      <- ncvar_get(ncfile,"LATITUDE")
+# chla     <- as.data.frame(ncvar_get(ncfile,"CHLA"))
+# psal     <- as.data.frame(ncvar_get(ncfile,"PSAL"))
+# temp     <- as.data.frame(ncvar_get(ncfile,"TEMP"))
+# cdom <- as.data.frame(ncvar_get(ncfile,"CDOM"))
+# 
+# GOLD <- cbind(pres, chla, psal, temp, cdom, juld, lon, lat)
+# 
+# colnames(GOLD) <- c("depth","chla",
+#                     "psal","temp",
+#                     "cdom", "juld", "lon", "lat")
+# 
+# GOLD$cdom[GOLD$cdom == 99999] <- NA
+# GOLD <- GOLD[!rowSums(is.na(GOLD[,2:5])) == 4,]
+# GOLD <- GOLD[!(is.na(GOLD[,3]) == FALSE),]
+# 
+# #APPLICATION OF CORRECTION BASED ON THE MEAN OF 404 PROFILES FROM THE BLACK SEA
+# chla_cor <- as.data.frame(GOLD$chla - (0.035*GOLD$cdom) - mean(FDOMdf$C))/2
+# colnames(chla_cor) <- "chla"
+# chla_cor$depth <- GOLD$depth
+# 
+# #HPLC
+# depth_hplc <- c(0,30,50,70,90,100,140,200,250,500,750,1000)
+# chla_hplc <- c(0.6111,0.6433,0.3090,0.0675,0.0229,0.0168,0.012,0.0032,
+#                0.0035,0.0023,0.0039,0.0042)
+# temp_hplc <- rep(NA, length(depth_hplc))
+# psal_hplc <- rep(NA, length(depth_hplc))
+# cdom_hplc <- rep(NA, length(depth_hplc))
+# 
+# hplcprofile <- as.data.frame(cbind(depth_hplc, temp_hplc, psal_hplc, 
+#                                    chla_hplc, cdom_hplc))
+# hplcprofile$origin <- "HPLC"
+# colnames(hplcprofile) <- c("depth","temp","psal","chla","cdom","origin")
+# 
+# ggplot(GOLD, aes(x = chla, y = depth)) +
+#   geom_point() + scale_y_reverse() + 
+#   geom_point(data = chla_cor, aes(x = chla, y = depth, color = "red"))+
+#   geom_point(data = hplcprofile, aes(x = chla, y = depth, color = "yellow"))
+# 
+# for (i in 1:length(hplcprofile$chla)){
+#   indexdepth[i] <- which.min(abs(chla_cor$depth - hplcprofile$depth[i]))
+# }
+# 
+# rmse_chla_vec <- chla_cor$chla[indexdepth]
+# rmse_chla_vec <- GOLD$chla[indexdepth]
+# 
+# hplcprofile[1:3,] <- NA
+# rmse_chla_vec[1:3] <- NA
+# 
+# rmse <- sqrt(sum((hplcprofile$chla - rmse_chla_vec)^2, na.rm = T)/
+#               (length(hplcprofile$depth) - length(which(is.na(hplcprofile$chla) == TRUE))))
+# 
+
+
+#CDOM analysis
+tmp <- cdom_profiles[cdom_profiles$id == i,]
+ggplot(tmp, aes(x = cdom, y = depth)) + geom_point() + 
+  scale_y_reverse()
+i <- i + 1
+
+
+cdom_profiles<- ddply(cdom_profiles,~month, transform, season=1*(month %in% c(12,1,2))+
+                              2*(month %in% c(3,4,5 ))+
+                              3*(month %in% c(6,7,8 ))+
+                              4*(month %in% c(9,10,11 )))
+
+a <- ggplot(cdom_profiles, aes(x = cdom, y =depth, colour = factor(Platform))) + 
+  geom_point(size = 0.1) + scale_y_reverse()
+
+b <- ggplot(cdom_profiles, aes(x = fluo, y =depth, colour = factor(Platform))) + 
+  geom_point(size = 0.1) + scale_y_reverse() + xlim(c(0,1))
+
+grid.arrange(a,b, ncol=2, nrow = 1)
+
+#Creation of a basin scale CDOM profile (no real seasonality has been spotted, at least in the deeper part)
+bindf <- ldply(as.list(1:length(unique(cdom_profiles$id))), function(i){
+  tmp <- cdom_profiles[cdom_profiles$id == i,]
+  tmp1 <- tmp[tmp$depth <= 200,]
+  tmp2 <- tmp[tmp$depth > 200 & tmp$depth <= 400,]
+  tmp3 <- tmp[tmp$depth > 400 & tmp$depth <= 1000,]#on peut allonger un peu loin (regarder bottom max des profils sans CDOM)
+  bin1 <- as.data.frame(binAverage(tmp1$depth, tmp1$cdom, xmin = 0, xmax = floor(max(tmp1$depth, na.rm = T)), xinc = 1))
+  bin2 <- as.data.frame(binAverage(tmp2$depth, tmp2$cdom, xmin = 200, xmax = floor(max(tmp2$depth, na.rm = T)), xinc = 5))
+  bin3 <- as.data.frame(binAverage(tmp3$depth, tmp3$cdom, xmin = 400, xmax = floor(max(tmp3$depth, na.rm = T)), xinc = 20))
+  bin <- rbind(bin1, bin2, bin3)
+   data.frame(depth = bin$x, cdom = bin$y, juld = tmp$juld[1], platform = tmp$Platform[1])
+})
+
+
+bin2df <- ddply(bindf, ~depth, summarize,
+                #l = length(which(!is.na(depth) == TRUE)),
+                cdom = mean(cdom, na.rm = T))
+
+# test <- bin2df[bin2df$depth <= 720,]
+# trick <- data.frame(depth = 1000, cdom = 13.5)
+# test <- rbind(test, trick)
+
+ggplot(bin2df, aes(x = cdom, y =depth)) + 
+  geom_point(size = 0.5) + scale_y_reverse() + geom_smooth(span=1)
+
+ggplot(bin2df, aes(x = cdom, y =depth)) + 
+  geom_point(size = 0.5) + scale_y_reverse() + stat_smooth(span=1, aes(outfit=fit<<-..x..))
+
+ggplot(bin2df, aes(x = cdom, y =depth)) + 
+  geom_point(size = 0.5) + scale_y_reverse() + stat_smooth(span=1, aes(outfit=fit2<<-..y..))
+
+
+
+
+#test
+nocdom <- profiles[profiles$Platform == 7900591 | profiles$Platform == 7900592,]
+nocdom <- transform(nocdom,id=as.numeric(factor(juld)))
+tmp <- nocdom[nocdom$id == i,]
+ggplot(tmp, aes(x = fluo, y =depth)) + 
+  geom_path(size = 0.5) + scale_y_reverse() 
+
+MaxDepth <- max(tmp$depth)#Max depth of the profile
+TopDepth <- tmp$depth[which.min(tmp$fluo)]
+
+test <- data.frame(depth = approx(bin2df$depth, bin2df$cdom, tmp$depth)$x, 
+                      cdom = approx(bin2df$depth, bin2df$cdom, tmp$depth)$y)
+
+tmp$cdom <- test$cdom
+
+calibrange <- tmp[which(tmp$depth == TopDepth):which(tmp$depth == MaxDepth),]
+
+linearMod <- lm(fluo ~ cdom, data = calibrange)
+slope_fdom <- coef(linearMod)[[2]]
+C <- coef(linearMod)[[1]]
+
+fluo_test_cor <- tmp$fluo - (slope_fdom*tmp$cdom) - C
+tmp <- cbind(tmp, fluo_test_cor)
+
+ggplot(tmp, aes(x = fluo, y = depth)) + geom_point() + scale_y_reverse() + 
+  geom_point(data = tmp, aes(x = fluo_test_cor, y = depth), colour = "red")
+
+i <- i + 1
