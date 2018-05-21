@@ -1237,7 +1237,7 @@ TOTAL2$sigma_ratio <- sigma_ratio$ratio
 ggplot(TOTAL2, aes(sigma_ratio, fill=Category)) + geom_histogram(data = TOTAL2, binwidth = 0.01, 
                                                                    breaks=seq(0.80, 1.1, by = 0.005),
                                                                               col = "black") + 
-  ylab("Counts") + xlab("Ratio") +  scale_fill_manual(values=c("steelblue4","steelblue2"))
+  ylab("Number of profiles") + xlab(expression(paste(sigma["DCM"],"/",sigma["MLD"]))) +  scale_fill_manual(values=c("steelblue4","steelblue2"))
   theme(text = element_text(size=12)) 
   
   
@@ -1384,9 +1384,9 @@ colnames(data_facet) <- c("group","ymin","ymax","xmin","xmax")
  #   axis.ticks.x=element_blank())
 
 #NAVARRO FIG 4A
- ggplot(perioddf2, aes(x = NORM_TOT_SIGMABIS, y = density, group = juld))+
+a <- ggplot(perioddf2, aes(x = NORM_TOT_SIGMABIS, y = density, group = juld))+
   geom_path(size = 0.5) + facet_grid(~group, scales = "free_x") +
-  scale_y_reverse() +   ylab("Potential density anomaly (kg/m³)") +
+  scale_y_reverse() +  ylab(expression(Potential~density~anomaly~(kg/m^3))) +
   #xlab("Normalized chlorophyll a") +
    geom_hline(yintercept = range_jan_feb2017[1], colour = "black", lty = "dashed") +
    geom_hline(yintercept = range_jan_feb2017[2], colour = "black", lty = "dashed") +
@@ -1517,7 +1517,7 @@ mld2017 <- ddply(mld2017, ~month, summarize,
                  maxMLD = max(MLD))
 
 #NAVARRO 4B
-a <- ggplot(perioddf2, aes(x=NORM_TOT_DCM_DEPTH, y=depth, group=juld)) +
+b <- ggplot(perioddf2, aes(x=NORM_TOT_DCM_DEPTH, y=depth, group=juld)) +
   geom_path(size = 0.5) + facet_grid(~group, scales = "free_x") +
   ylab("Depth (m)") +
   xlab("Normalized chlorophyll a") +
@@ -1534,8 +1534,9 @@ a <- ggplot(perioddf2, aes(x=NORM_TOT_DCM_DEPTH, y=depth, group=juld)) +
              aes(yintercept=yint), colour = "yellow")  +
   geom_hline(data = data.frame(yint = as.vector(mld2017$meanMLD),
                                group = c("February", "March", "April","May","June","July","August","September")),
-             aes(yintercept = yint), colour = "green")
+             aes(yintercept = yint), colour = "green") 
 
+grid.arrange(a,b,nrow=2,ncol=1)
 
 #NAVARRO 3A and 3B
 tmp <- TOTAL_DCM_PROFILES2
@@ -1555,7 +1556,11 @@ a <- ggplot(tmp2, aes(x = NORM_TOT_DCM_DEPTH, y = depth, group = juld, colour = 
                                      "green3", "lightgreen", "steelblue2", "steelblue4")),
                         breaks = c(2,3,4,5,6,7,8,9),
                         labels = c("February", "March", "April","May","June","July","August","September"),
-                        guide = guide_colourbar(title = "", barheight = 10))
+                        guide = guide_colourbar(title = "", barheight = 10)) +
+  theme(text=element_text(size=12)) + #scale_x_continuous(breaks = c(0, 0.5))
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
+       axis.ticks.x=element_blank())
+
 
 
 tmp <- TOTAL_SIGMA_PROFILES2
@@ -1572,17 +1577,17 @@ colnames(rerangedf) <- c("year","ymin","ymax","xmin","xmax")
 
 b <- ggplot(tmp2, aes(x = NORM_TOT_SIGMA, y = density, group = juld, colour = month)) + 
   geom_path() + facet_grid(~year, scales = "free_x") + 
-  ylab("Potential density anomaly (kg/m³)") + xlab("Normalized chlorophyll a") + 
-  theme(text=element_text(size=12)) + scale_x_continuous(breaks = c(0, 0.5)) + 
+  ylab(expression(Potential~density~anomaly~(kg/m^3))) + xlab("Normalized chlorophyll a") + 
+  theme(text=element_text(size=12)) + scale_x_continuous(breaks = c(0, 0.3)) + 
   scale_y_reverse() + 
   scale_color_gradientn(colors=rev(c("darkred", "red", "orange", "yellow",
                                      "green3", "lightgreen", "steelblue2", "steelblue4")),
                         breaks = c(2,3,4,5,6,7,8,9),
                         labels = c("February", "March", "April","May","June","July","August","September"),
                         guide = guide_colourbar(title = "", barheight = 10)) +
-  theme(text=element_text(size=13)) + #scale_x_continuous(breaks = c(0, 0.5)) 
-  theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
-        axis.ticks.x=element_blank()) +
+  # theme(text=element_text(size=13)) + #scale_x_continuous(breaks = c(0, 0.5)) 
+  # theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
+  #       axis.ticks.x=element_blank()) +
   geom_hline(data=rangedf[rangedf$year == 2014,], aes(yintercept=rangedf$inf[1]), colour="black", lty = "dashed") +
   geom_hline(data=rangedf[rangedf$year == 2015,], aes(yintercept=rangedf$inf[2]), colour="black", lty = "dashed") + 
   geom_hline(data=rangedf[rangedf$year == 2016,], aes(yintercept=rangedf$inf[3]), colour="black", lty = "dashed") +
@@ -1595,7 +1600,7 @@ geom_hline(data=rangedf[rangedf$year == 2017,], aes(yintercept=rangedf$sup[4]), 
                                     ymin=ymin, ymax=ymax),
                                     alpha=.2,fill=factor("black"), inherit.aes = FALSE)
 
-grid.arrange(b,a, ncol = 1, nrow = 2)
+grid.arrange(a,b, ncol = 1, nrow = 2)
 
 ############### REFAIRE TOUTES LES IMAGES EN FORMAT PDF ##############
 
