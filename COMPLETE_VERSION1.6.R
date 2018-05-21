@@ -15,6 +15,7 @@ library(car)
 library(oce)
 library(ggmap)
 library(ggalt)
+library(RColorBrewer)
 #library(pbapply)
 
 #/!!!!!!!!!!!!!!!!!!!!!!!\     CHECK BEFORE USE     /!!!!!!!!!!!!!!!!!!!!\
@@ -132,7 +133,7 @@ profiles <- ldply(as.list(filename),function(file){
   #     chladf$value <- (chladf$value / fluo_param[[4]][1]) + fluo_param[[4]][2] 
   #   }}
   
-  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER") 
   
   data.frame(depth    = chladf$depth,
              juld     = chladf$juld,
@@ -237,6 +238,8 @@ density_profiles <- ldply(as.list(filename),function(file){
     sigma <- swSigmaTheta(psaldf$value,tempdf$value,tempdf$depth)
   }
   
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER") 
+  
   data.frame(sigma = sigma,
              depth = tempdf$depth, 
              juld  = tempdf$juld, 
@@ -247,7 +250,8 @@ density_profiles <- ldply(as.list(filename),function(file){
              month = month.day.year(tempdf$juld,c(1,1,1950))$month,
              year  = month.day.year(tempdf$juld,c(1,1,1950))$year,
              DOY   = as.integer(strftime(as.Date(tempdf$juld,origin = '1950-01-01'), 
-                                         format ="%j")))#Day Of Year
+                                         format ="%j")),
+             Platform = as.numeric(unique(id)))#Day Of Year
   
 })
 
@@ -289,6 +293,7 @@ depth_ref <- 10
 MLDdf <- ldply(as.list(1:length(unique(density_profiles$id))), function(i){
   
   tmp <- density_profiles[density_profiles$id == i,]
+  rownames(tmp) <- NULL
   
   if(all(is.na(tmp$sigma)) == TRUE){
     MLD <- NA
@@ -304,11 +309,21 @@ MLDdf <- ldply(as.list(1:length(unique(density_profiles$id))), function(i){
     MLD <- NA
   }
   
-  data.frame(sigma_surface = sigma_surface, MLD = MLD, juld = tmp$juld[1], day = month.day.year(tmp$juld[1],c(1,1,1950))$day,
+  if(is.na(MLD) == TRUE){
+    sigmaMaxMLD <- NA
+  }else{
+    sigmaMaxMLD <- mean(tmp$sigma[which(tmp$depth == MLD)], na.rm =T)
+  }
+
+  show(i)
+  
+  data.frame(sigma_surface = sigma_surface, MLD = MLD, sigmaMaxMLD = sigmaMaxMLD,
+             juld = tmp$juld[1], day = month.day.year(tmp$juld[1],c(1,1,1950))$day,
              month = month.day.year(tmp$juld[1],c(1,1,1950))$month,
              year = month.day.year(tmp$juld[1],c(1,1,1950))$year,
              DOY = as.integer(strftime(as.Date(tmp$juld[1],origin = '1950-01-01'), 
-                                       format ="%j")))
+                                       format ="%j")),
+             Platform = tmp$Platform[1])
 })
 
 #REMOVE BAD PROFILES (NO MLD DATA AVAILABLE)
@@ -1130,6 +1145,7 @@ TOTAL_SIGMA <- ddply(TOTAL_SIGMA,~month, transform, season=1*(month %in% c(12,1,
                        3*(month %in% c(6,7,8 ))+
                        4*(month %in% c(9,10,11 )))
 
+
 #TEXT FILES creation FOR DIVA
 
 # DCM ONLY
@@ -1182,11 +1198,49 @@ sub_TOTAL_SIGMA <- subset(TOTAL_SIGMA, select = c("lon", "lat", "juld", "sigma_d
 
 TOTAL_DCM_DEPTH_SIGMA <- cbind(sub_TOTAL_DCM, sub_TOTAL_SIGMA$sigma_dcm)
 
+#IN FACT, TOTAL2 NOT NEEDED (SEE TOTAL_DCM_DEPTH_SIGMA) UNLESS YOU WANT THE CATEGORY SO KEEP IT 
 TOTAL2 <- rbind(sub_sigmaDCM, sub_sigma_modified_DCM)
 TOTAL2 <- TOTAL2[order(TOTAL2$juld),]
 TOTAL_DCM_DEPTH_SIGMA <- TOTAL_DCM_DEPTH_SIGMA[order(TOTAL_DCM_DEPTH_SIGMA$juld),]
 TOTAL2$Zmax <- TOTAL_DCM_DEPTH_SIGMA$Zmax
+TOTAL2 <- transform(TOTAL2, id = as.numeric(factor(juld)))
 
+#ADD SIGMA MLD PER PROFILE ("pseudo" MAX MLD)
+MLDdf2 <- MLDdf[MLDdf$juld %in% TOTAL2$juld,]
+MLDdf2 <- transform(MLDdf2, id = as.numeric(factor(juld)))
+TOTAL2$sigma_MLD <- MLDdf2$sigmaMaxMLD
+range_jan_feb2014 <- range(MLDdf[MLDdf$year == 2014 & MLDdf$month %in% c(1,2),]$sigmaMaxMLD)
+range_jan_feb2017 <- range(MLDdf[MLDdf$year == 2017 & MLDdf$month %in% c(1,2),]$sigmaMaxMLD)
+range_jan_feb2015 <- range(MLDdf[MLDdf$year == 2015 & MLDdf$month %in% c(1,2),]$sigmaMaxMLD)
+range_jan_feb2016 <- range(MLDdf[MLDdf$year == 2016 & MLDdf$month %in% c(1,2),]$sigmaMaxMLD)
+rangedf <- data.frame(year = c(2014,2015,2016,2017), inf = c(range_jan_feb2014[1],
+          range_jan_feb2015[1],range_jan_feb2016[1],range_jan_feb2017[1]), sup =
+           c(range_jan_feb2014[2],
+                    range_jan_feb2015[2],range_jan_feb2016[2],range_jan_feb2017[2]))
+
+#MLD each platform and each year (DCM OR NOT HENCE 622 PROFILES SPANNING 2014 TO 2017)
+MLDdf3 <- ddply(MLDdf, ~year~Platform, summarize,
+              max = max(MLD),
+              sigmaMaxMLD = sigmaMaxMLD[which.max(MLD)])
+
+#Ratio sigmaDCM/sigamMAXMLD (per year and per platform)
+sigma_ratio <- ldply(as.list(1:length(MLDdf2$id)), function(i){
+  tmp <- MLDdf2[MLDdf2$id == i,]
+  tmp2 <- TOTAL2[TOTAL2$id == i,]
+  sigmaMaxMLD <- MLDdf3$sigmaMaxMLD[which(MLDdf3$year == tmp$year & MLDdf3$Platform == tmp$Platform)]
+  ratio = tmp2$sigma_dcm/sigmaMaxMLD
+  data.frame(ratio = ratio, juld = tmp$juld[1])
+})
+
+TOTAL2$sigma_ratio <- sigma_ratio$ratio
+
+ggplot(TOTAL2, aes(sigma_ratio, fill=Category)) + geom_histogram(data = TOTAL2, binwidth = 0.01, 
+                                                                   breaks=seq(0.80, 1.1, by = 0.005),
+                                                                              col = "black") + 
+  ylab("Counts") + xlab("Ratio") +  scale_fill_manual(values=c("steelblue4","steelblue2"))
+  theme(text = element_text(size=12)) 
+  
+  
 #REARRANGE TOTAL2 AND PUT DEPTH IN IT THEN CHECK WITH TOTAL_DCM_DETH_SIGMA
 
 # write.table(sub_TOTAL_DCM, file="TOTAL_DCM_DEPTH.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
@@ -1201,10 +1255,15 @@ TOTAL2$Zmax <- TOTAL_DCM_DEPTH_SIGMA$Zmax
 #MAP OF DATA
 # total <- rbind(DCM, modified_DCM)
 # 
-TOTAL2 <- ddply(TOTAL2,~month, transform, Season=1*(month %in% c(12,1,2))+
-                       2*(month %in% c(3,4,5 ))+
-                       3*(month %in% c(6,7,8 ))+
+TOTAL2 <- ddply(TOTAL2,~month, transform, Season=1*(month %in% c(12,1,2)) +
+                       2*(month %in% c(3,4,5 )) +
+                       3*(month %in% c(6,7,8 )) +
                        4*(month %in% c(9,10,11 )))
+
+# write.table(TOTAL2, file="FULL_TOTAL_RATIO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+
+
 #Black Sea coordinates
 bs <- c(26.5,40,43,46)
 myMap <-get_map(location=bs, source="google", crop=FALSE, maptype = "terrain")
@@ -1240,8 +1299,6 @@ ggmap(myMap) +
                      values = c("orangered","#7CAE00","#00BFC4","#C77CFF"))
 
 ####### USE LAST COMPIL
-
-
 
 NORM_DCM <- normalize(DCMprofiles$fluo)
 DCMprofiles2 <- cbind(DCMprofiles, NORM_DCM)
@@ -1299,50 +1356,48 @@ info2017 <- ldply(as.list(2:9), function(i){
   data.frame(mean = mean, sd = sd)
 })
 
-
-ggplot(perioddf2, aes(x = NORM_TOT_SIGMABIS, y = density, group = juld))+
-  geom_path(size = 0.5) + facet_grid(~group, scales = "free_x") +
-  scale_y_reverse() +   ylab("Potential density anomaly (kg/m³)") +
-  xlab("Normalized chlorophyll a (mg/m³)") +
-  # geom_hline(data = data.frame(yint=as.vector(info2017$mean), 
-  #                              group=c("February", "March", "April","May","June","July","August","September")),
-  #                              aes(yintercept=yint), colour = "yellow") +
-  geom_hline(data = data.frame(yint=as.vector(info2017$mean+info2017$sd),
-                               group=c("February", "March", "April","May","June","July","August","September")),
-                               aes(yintercept=yint), colour = "black", linetype="dashed") +
-  geom_hline(data = data.frame(yint=as.vector(info2017$mean-info2017$sd),
-                               group=c("February", "March", "April","May","June","July","August","September")),
-             aes(yintercept=yint), colour = "black",linetype="dashed") +
-  geom_hline(yintercept = mean(info2017$mean), colour = "red") +
-  geom_rect(data=data_facet, aes(xmin=xmin, xmax=xmax, 
-                                          ymin=ymin, ymax=ymax, 
-                                          alpha=0,fill=factor("yellow")), inherit.aes = FALSE) +
-  scale_fill_manual(values = "yellow") + theme(legend.position="none")
-
-
-  
-
-
 data_facet <- as.data.frame(x = c("February", "March", "April","May","June","July","August","September"))
 data_facet$inf <- info2017$mean - info2017$sd
 data_facet$sup <- info2017$mean + info2017$sd
 data_facet$xmin <- -Inf
 data_facet$xmax <- Inf
 colnames(data_facet) <- c("group","ymin","ymax","xmin","xmax")
+# 
+# #NAVARRO FIG 4A
+ # b <- ggplot(perioddf2, aes(x = NORM_TOT_SIGMABIS, y = density, group = juld))+
+ #  geom_path(size = 0.5) + facet_grid(~group, scales = "free_x") +
+ #  scale_y_reverse() +   ylab("Potential density anomaly (kg/m³)") +
+ #  #xlab("Normalized chlorophyll a") +
+ #  geom_hline(data = data.frame(yint=as.vector(info2017$mean+info2017$sd),
+ #                               group=c("February", "March", "April","May","June","July","August","September")),
+ #                               aes(yintercept=yint), colour = "black", linetype="dashed") +
+ #  geom_hline(data = data.frame(yint=as.vector(info2017$mean-info2017$sd),
+ #                               group=c("February", "March", "April","May","June","July","August","September")),
+ #             aes(yintercept=yint), colour = "black",linetype="dashed") +
+ #  #geom_hline(yintercept = mean(info2017$mean), colour = "red") +
+ #  geom_rect(data=data_facet, aes(xmin=xmin, xmax=xmax,
+ #                                          ymin=ymin, ymax=ymax,
+ #                                          alpha=0,fill=factor("yellow")), inherit.aes = FALSE) +
+ #  scale_fill_manual(values = "yellow") + theme(legend.position="none") +
+ #  theme(text=element_text(size=12)) + #scale_x_continuous(breaks = c(0, 0.5))
+ #  theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
+ #   axis.ticks.x=element_blank())
 
-ggplot(perioddf, aes(x=NORM_TOT_SIGMA, y=density, group=juld)) +
-  geom_point(size = 0.5) + facet_grid(~group) +
-  ylab("Potential density anomaly (kg/m³)") + xlab("Fluorescence (rfu)") +
-  scale_y_reverse() + 
-  geom_hline(yintercept=mld_2017$MLD_MIN_ARGO, linetype="dashed") +
-  geom_hline(yintercept=mld_2017$MLD_MAX_ARGO, linetype="dashed") +
-  annotate("rect", xmin=-Inf, xmax = Inf, ymin = mld_2017$MLD_MIN_ARGO,
-           ymax = mld_2017$MLD_MAX_ARGO, fill = "yellow",
-           alpha = .5, color = NA) + 
-  geom_hline(yintercept = mld_2017$MLD_MAX_MODEL, 
-             colour ="red")
-
-
+#NAVARRO FIG 4A
+ ggplot(perioddf2, aes(x = NORM_TOT_SIGMABIS, y = density, group = juld))+
+  geom_path(size = 0.5) + facet_grid(~group, scales = "free_x") +
+  scale_y_reverse() +   ylab("Potential density anomaly (kg/m³)") +
+  #xlab("Normalized chlorophyll a") +
+   geom_hline(yintercept = range_jan_feb2017[1], colour = "black", lty = "dashed") +
+   geom_hline(yintercept = range_jan_feb2017[2], colour = "black", lty = "dashed") +
+   annotate("rect", xmin=-Inf, xmax=+Inf, ymin = range_jan_feb2017[1], ymax = range_jan_feb2017[2],
+                 alpha = 0.5, fill="yellow", color = NA) +
+  #scale_fill_manual(values = "yellow") + theme(legend.position="none") +
+  theme(text=element_text(size=12)) + #scale_x_continuous(breaks = c(0, 0.5))
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
+   axis.ticks.x=element_blank())
+     
+ 
 ########## PAR ISOLUMES COMPUTATIONS ##########
 
 PAR_files <- c("6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
@@ -1397,187 +1452,253 @@ isolumes <- ldply(as.list(1:length(unique(year_par_profiles$juld))), function(i)
   p10 <- tmp$depth[which.max(tmp$par <= par_surf/10)]
   p1 <- tmp$depth[which.max(tmp$par <= par_surf/100)]
   data.frame(par_surf = par_surf, iso10 = p10, iso1 = p1,
-             DOY = tmp$DOY[1], juld = tmp$juld[1])
+             DOY = tmp$DOY[1], juld = tmp$juld[1], month = tmp$month[1],
+             year = tmp$year[1])
 })
 
 tmp <- TOTAL_DCM_PROFILES2[TOTAL_DCM_PROFILES2$year == YEARPAR,]
 
-crit_depth <- 100
+Per2 <- tmp[tmp$month == 2,]
+Per3 <- tmp[tmp$month == 3,]
+Per4 <- tmp[tmp$month == 4,]
+Per5 <- tmp[tmp$month == 5,]
+Per6 <- tmp[tmp$month == 6,]
+Per7 <- tmp[tmp$month == 7,]
+Per8 <- tmp[tmp$month == 8,]
+Per9 <- tmp[tmp$month == 9,]
 
-#depth only between 0 and 100m
-tmp <- ddply(TOTAL_DCM_PROFILES2,~juld,summarize,
-             depth = depth[which(depth <= crit_depth)],
-             DOY = DOY[which(depth <= crit_depth)],
-             fluo = fluo[which(depth <= crit_depth)],
-             juld = juld[which(depth <= crit_depth)])
+Per2$group <- c("February")
+Per3$group <- c("March")
+Per4$group <- c("April")
+Per5$group <- c("May")
+Per6$group <- c("June")
+Per7$group <- c("July")
+Per8$group <- c("August")
+Per9$group <- c("September")
 
-Per1 <- tmp[tmp$DOY <= 20,]
-Per2 <- tmp[tmp$DOY >= 30 & tmp$DOY <= 40,]
-Per3 <- tmp[tmp$DOY >= 60 & tmp$DOY <= 70,]
-Per4 <- tmp[tmp$DOY >= 90 & tmp$DOY <= 100,]
-Per5 <- tmp[tmp$DOY >= 120 & tmp$DOY <= 130,]
-Per6 <- tmp[tmp$DOY >= 150 & tmp$DOY <= 160,]
-Per7 <- tmp[tmp$DOY >= 180 & tmp$DOY <= 190,]
-Per8 <- tmp[tmp$DOY >= 210 & tmp$DOY <= 220,]
-Per9 <- tmp[tmp$DOY >= 240 & tmp$DOY <= 250,]
-Per10 <- tmp[tmp$DOY >= 270 & tmp$DOY <= 280,]
-Per11 <- tmp[tmp$DOY >= 300 & tmp$DOY <= 310,]
-Per12 <- tmp[tmp$DOY >= 330 & tmp$DOY <= 366,]
+perioddf <- rbind(Per2, Per3, Per4, Per5, Per6, Per7, Per8, Per9)
 
-Per1$group <- c("1/10Jan")
-Per2$group <- c("30Jan/9Feb")
-Per3$group <- c("1/11Mar")
-Per4$group <- c("31Mar/10Apr")
-Per5$group <- c("30Apr/10May")
-Per6$group <- c("30May/9Jun")
-Per7$group <- c("29Jun/9Jul")
-Per8$group <- c("29Jul/8Aug")
-Per9$group <- c("28Aug/7Sep")
-Per10$group <- c("27Sep/7Oct")
-Per11$group <- c("27Oct/6Nov")
-Per12$group <- c("26Nov/31Dec")
-
-perioddf <- rbind(Per1, Per2, Per3, Per4, Per5, Per6, Per7, Per8, Per9, Per10, Per11, Per12)
-
-doy1 <- unique(Per1$DOY)
-doy2 <- unique(Per2$DOY)
-doy3 <- unique(Per3$DOY)
-doy4 <- unique(Per4$DOY)
-doy5 <- unique(Per5$DOY)
-doy6 <- unique(Per6$DOY)
-doy7 <- unique(Per7$DOY)
-doy8 <- unique(Per8$DOY)
-doy9 <- unique(Per9$DOY)
-doy10 <- unique(Per10$DOY)
-doy11 <- unique(Per11$DOY)
-doy12 <- unique(Per12$DOY)
-
-j1 <- unique(Per1$juld)
-j2 <- unique(Per2$juld)
-j3 <- unique(Per3$juld)
-j4 <- unique(Per4$juld)
-j5 <- unique(Per5$juld)
-j6 <- unique(Per6$juld)
-j7 <- unique(Per7$juld)
-j8 <- unique(Per8$juld)
-j9 <- unique(Per9$juld)
-j10 <- unique(Per10$juld)
-j11 <- unique(Per11$juld)
-j12 <- unique(Per12$juld)
-
-#depth of dcm for each j period
-jmax1 <- TOTAL_DCM[TOTAL_DCM$juld %in% j1,]$Zmax
-jmax2 <- TOTAL_DCM[TOTAL_DCM$juld %in% j2,]$Zmax
-jmax3 <- TOTAL_DCM[TOTAL_DCM$juld %in% j3,]$Zmax
-jmax4 <- TOTAL_DCM[TOTAL_DCM$juld %in% j4,]$Zmax
-jmax5 <- TOTAL_DCM[TOTAL_DCM$juld %in% j5,]$Zmax
-jmax6 <- TOTAL_DCM[TOTAL_DCM$juld %in% j6,]$Zmax
-jmax7 <- TOTAL_DCM[TOTAL_DCM$juld %in% j7,]$Zmax
-jmax8 <- TOTAL_DCM[TOTAL_DCM$juld %in% j8,]$Zmax
-jmax9 <- TOTAL_DCM[TOTAL_DCM$juld %in% j9,]$Zmax
-jmax10 <- TOTAL_DCM[TOTAL_DCM$juld %in% j10,]$Zmax
-jmax11 <- TOTAL_DCM[TOTAL_DCM$juld %in% j11,]$Zmax
-jmax12 <- TOTAL_DCM[TOTAL_DCM$juld %in% j12,]$Zmax
-
-sj1 <- c(mean(jmax1), sd(jmax1))
-sj2 <- c(mean(jmax2), sd(jmax2))
-sj3 <- c(mean(jmax3), sd(jmax3))
-sj4 <- c(mean(jmax4), sd(jmax4))
-sj5 <- c(mean(jmax5), sd(jmax5))
-sj6 <- c(mean(jmax6), sd(jmax6))
-sj7 <- c(mean(jmax7), sd(jmax7))
-sj8 <- c(mean(jmax8), sd(jmax8))
-sj9 <- c(mean(jmax9), sd(jmax9))
-sj10 <- c(mean(jmax10), sd(jmax10))
-sj11 <- c(mean(jmax11), sd(jmax11))
-sj12 <- c(mean(jmax12), sd(jmax12))
-
-sjmean <- as.data.frame(c(sj1[1], sj2[1], sj3[1],sj4[1],sj5[1],sj6[1],
-                          sj7[1],sj8[1],sj9[1],sj10[1],sj11[1],sj12[1]))
-colnames(sjmean) <- "mean"
-
-sjsd <- as.data.frame(c(sj1[2], sj2[2], sj3[2],sj4[2],sj5[2],sj6[2],
-                        sj7[2],sj8[2],sj9[2],sj10[2],sj11[2],sj12[2]))
-
-colnames(sjsd) <- "sd"
-
-doy1PAR <- isolumes[isolumes$DOY %in% doy1,]
-doy2PAR <- isolumes[isolumes$DOY %in% doy2,]
-doy3PAR <- isolumes[isolumes$DOY %in% doy3,]
-doy4PAR <- isolumes[isolumes$DOY %in% doy4,]
-doy5PAR <- isolumes[isolumes$DOY %in% doy5,]
-doy6PAR <- isolumes[isolumes$DOY %in% doy6,]
-doy7PAR <- isolumes[isolumes$DOY %in% doy7,]
-doy8PAR <- isolumes[isolumes$DOY %in% doy8,]
-doy9PAR <- isolumes[isolumes$DOY %in% doy9,]
-doy10PAR <- isolumes[isolumes$DOY %in% doy10,]
-doy11PAR <- isolumes[isolumes$DOY %in% doy11,]
-doy12PAR <- isolumes[isolumes$DOY %in% doy12,]
-
-#compute mean iso 10% et 1% 
-doy1meaniso <- c(mean(doy1PAR$iso10), mean(doy1PAR$iso1))
-doy2meaniso <- c(mean(doy2PAR$iso10), mean(doy2PAR$iso1))
-doy3meaniso <- c(mean(doy3PAR$iso10), mean(doy3PAR$iso1))
-doy4meaniso <- c(mean(doy4PAR$iso10), mean(doy4PAR$iso1))
-doy5meaniso <- c(mean(doy5PAR$iso10), mean(doy5PAR$iso1))
-doy6meaniso <- c(mean(doy6PAR$iso10), mean(doy6PAR$iso1))
-doy7meaniso <- c(mean(doy7PAR$iso10), mean(doy7PAR$iso1))
-doy8meaniso <- c(mean(doy8PAR$iso10), mean(doy8PAR$iso1))
-doy9meaniso <- c(mean(doy9PAR$iso10), mean(doy9PAR$iso1))
-doy10meaniso <- c(mean(doy10PAR$iso10), mean(doy10PAR$iso1))
-doy11meaniso <- c(mean(doy11PAR$iso10), mean(doy11PAR$iso1))
-doy12meaniso <- c(mean(doy12PAR$iso10), mean(doy12PAR$iso1))
+#ordering facet
+perioddf$group = factor(perioddf$group, 
+                        levels=c("February", "March", "April","May","June","July","August","September"))
 
 NORM_TOT_DCM_DEPTH <- normalize(perioddf$fluo)
 perioddf2 <- cbind(perioddf, NORM_TOT_DCM_DEPTH)
 
-index_group <- which(duplicated(perioddf$group) == FALSE)
+perioddf2 <- perioddf2[!(perioddf2$month == 1 | perioddf2$month == 10 |
+                       perioddf2$month == 11 | perioddf2$month == 12),]
 
-alliso10 <- as.data.frame(c(doy1meaniso[1], doy2meaniso[1],doy3meaniso[1],
-                            doy4meaniso[1],doy5meaniso[1],doy6meaniso[1],
-                            doy7meaniso[1],doy8meaniso[1],doy9meaniso[1],
-                            doy10meaniso[1],doy11meaniso[1],doy12meaniso[1]))
-colnames(alliso10) <- "iso10"
-alliso1 <- as.data.frame(c(doy1meaniso[2], doy2meaniso[2],doy3meaniso[2],
-                           doy4meaniso[2],doy5meaniso[2],doy6meaniso[2],
-                           doy7meaniso[2],doy8meaniso[2],doy9meaniso[2],
-                           doy10meaniso[2],doy11meaniso[2],doy12meaniso[2]))
-colnames(alliso1) <- "iso1"
+rownames(perioddf2) <- NULL
 
-#ordering facet
-perioddf2$group = factor(perioddf2$group, levels=c('1/10Jan','30Jan/9Feb','1/11Mar',
-                                                   '31Mar/10Apr','30Apr/10May','30May/9Jun',
-                                                   '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
-                                                   '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec'))
+#ADD MEAN DCM DEPTH AND PAR 1 & 10
+dcm2017 <- ldply(as.list(2:9), function(i){
+  tmp2 <- perioddf2[perioddf2$month == i,]
+  tmp2 <- transform(tmp2,id=as.numeric(factor(juld)))
+  dcm <- ddply(tmp2, ~juld, summarize,
+                     maxfluo = mean(depth[which.max(fluo)], na.rm = T))
+  mean <- mean(dcm$maxfluo)
+  sd <- sd(dcm$maxfluo)
+  data.frame(mean = mean, sd = sd)
+})
 
-ggplot(perioddf2, aes(x=NORM_TOT_DCM_DEPTH, y=depth, group=juld)) +
-  geom_path(size = 0.5) + facet_grid(~group) +
-  ylab("Depth (m)") + xlab("Fluorescence (rfu)") +
-  scale_y_reverse() + 
-  geom_hline(data = data.frame(yint=as.vector(alliso10$iso10), 
-                               group=c('1/10Jan','30Jan/9Feb','1/11Mar',
-                                       '31Mar/10Apr','30Apr/10May','30May/9Jun',
-                                       '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
-                                       '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec')),
+iso2017 <- ldply(as.list(2:9), function(i){
+  tmp <- isolumes[isolumes$month == i,]
+  p10 <- mean(tmp$iso10)
+  p1 <- mean(tmp$iso1)
+  data.frame(month = i, p10 = p10, p1 = p1)
+})
+
+#ADD MEAN MONTH MLD
+mld2017 <- MLDdf[MLDdf$year == YEARPAR,]
+mld2017 <- mld2017[!(mld2017$month == 1 | mld2017$month == 10 |
+                     mld2017$month == 11 | mld2017$month == 12),]
+mld2017 <- ddply(mld2017, ~month, summarize,
+                 meanMLD = mean(MLD),
+                 maxMLD = max(MLD))
+
+#NAVARRO 4B
+a <- ggplot(perioddf2, aes(x=NORM_TOT_DCM_DEPTH, y=depth, group=juld)) +
+  geom_path(size = 0.5) + facet_grid(~group, scales = "free_x") +
+  ylab("Depth (m)") +
+  xlab("Normalized chlorophyll a") +
+  theme(text=element_text(size=12)) + scale_x_continuous(breaks = c(0, 0.5)) + 
+  scale_y_reverse(limits = c(80,0)) +
+  geom_hline(data = data.frame(yint=as.vector(iso2017$p10), 
+                               group=c("February", "March", "April","May","June","July","August","September")),
              aes(yintercept=yint), colour = "red") +
-  geom_hline(data = data.frame(yint=as.vector(alliso1$iso1), 
-                               group=c('1/10Jan','30Jan/9Feb','1/11Mar',
-                                       '31Mar/10Apr','30Apr/10May','30May/9Jun',
-                                       '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
-                                       '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec')),
+  geom_hline(data = data.frame(yint=as.vector(iso2017$p1), 
+                               group=c("February", "March", "April","May","June","July","August","September")),
              aes(yintercept=yint), colour = "red", linetype = "dotted") +
-  geom_hline(data = data.frame(yint=as.vector(sjmean$mean), 
-                               group=c('1/10Jan','30Jan/9Feb','1/11Mar',
-                                       '31Mar/10Apr','30Apr/10May','30May/9Jun',
-                                       '29Jun/9Jul','29Jul/8Aug','28Aug/7Sep',
-                                       '27Sep/7Oct','27Oct/6Nov','26Nov/31Dec')),
-             aes(yintercept=yint), colour = "yellow") 
+  geom_hline(data = data.frame(yint=as.vector(dcm2017$mean), 
+                               group=c("February", "March", "April","May","June","July","August","September")),
+             aes(yintercept=yint), colour = "yellow")  +
+  geom_hline(data = data.frame(yint = as.vector(mld2017$meanMLD),
+                               group = c("February", "March", "April","May","June","July","August","September")),
+             aes(yintercept = yint), colour = "green")
 
 
-#Add l'incertitude sur la moyenne des profondeurs
-#Régler le problème de fin Novembre
-#Refaire les figures 3b de Navarro
-#Clôturer les fichiers !! -> Lancer les analyses DIVA
+#NAVARRO 3A and 3B
+tmp <- TOTAL_DCM_PROFILES2
+NORM_TOT_DCM_DEPTH <- normalize(tmp$fluo)
+tmp2 <- cbind(tmp, NORM_TOT_DCM_DEPTH)
+tmp2 <- tmp2[!(tmp2$month == 1 | tmp2$month == 10 |
+                       tmp2$month == 11 | tmp2$month == 12),]
+rownames(tmp2) <- NULL
 
 
+a <- ggplot(tmp2, aes(x = NORM_TOT_DCM_DEPTH, y = depth, group = juld, colour = month)) + 
+  geom_path() + facet_grid(~year, scales = "free_x") + 
+  ylab("Depth (m)") + xlab("Normalized chlorophyll a") + 
+  theme(text=element_text(size=12)) + scale_x_continuous(breaks = c(0, 0.5)) + 
+  scale_y_reverse(limits = c(80,0)) + 
+  scale_color_gradientn(colors=rev(c("darkred", "red", "orange", "yellow",
+                                     "green3", "lightgreen", "steelblue2", "steelblue4")),
+                        breaks = c(2,3,4,5,6,7,8,9),
+                        labels = c("February", "March", "April","May","June","July","August","September"),
+                        guide = guide_colourbar(title = "", barheight = 10))
 
+
+tmp <- TOTAL_SIGMA_PROFILES2
+NORM_TOT_SIGMA <- normalize(tmp$fluo)
+tmp2 <- cbind(tmp, NORM_TOT_SIGMA)
+tmp2 <- tmp2[!(tmp2$month == 1 | tmp2$month == 10 |
+                 tmp2$month == 11 | tmp2$month == 12),]
+rownames(tmp2) <- NULL
+
+rerangedf <- rangedf
+rerangedf$xmin <- -Inf
+rerangedf$xmax <- Inf
+colnames(rerangedf) <- c("year","ymin","ymax","xmin","xmax")
+
+b <- ggplot(tmp2, aes(x = NORM_TOT_SIGMA, y = density, group = juld, colour = month)) + 
+  geom_path() + facet_grid(~year, scales = "free_x") + 
+  ylab("Potential density anomaly (kg/m³)") + xlab("Normalized chlorophyll a") + 
+  theme(text=element_text(size=12)) + scale_x_continuous(breaks = c(0, 0.5)) + 
+  scale_y_reverse() + 
+  scale_color_gradientn(colors=rev(c("darkred", "red", "orange", "yellow",
+                                     "green3", "lightgreen", "steelblue2", "steelblue4")),
+                        breaks = c(2,3,4,5,6,7,8,9),
+                        labels = c("February", "March", "April","May","June","July","August","September"),
+                        guide = guide_colourbar(title = "", barheight = 10)) +
+  theme(text=element_text(size=13)) + #scale_x_continuous(breaks = c(0, 0.5)) 
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  geom_hline(data=rangedf[rangedf$year == 2014,], aes(yintercept=rangedf$inf[1]), colour="black", lty = "dashed") +
+  geom_hline(data=rangedf[rangedf$year == 2015,], aes(yintercept=rangedf$inf[2]), colour="black", lty = "dashed") + 
+  geom_hline(data=rangedf[rangedf$year == 2016,], aes(yintercept=rangedf$inf[3]), colour="black", lty = "dashed") +
+  geom_hline(data=rangedf[rangedf$year == 2017,], aes(yintercept=rangedf$inf[4]), colour="black", lty = "dashed") +
+  geom_hline(data=rangedf[rangedf$year == 2014,], aes(yintercept=rangedf$sup[1]), colour="black", lty = "dashed") +
+geom_hline(data=rangedf[rangedf$year == 2015,], aes(yintercept=rangedf$sup[2]), colour="black", lty = "dashed") +
+geom_hline(data=rangedf[rangedf$year == 2016,], aes(yintercept=rangedf$sup[3]), colour="black", lty = "dashed") +
+geom_hline(data=rangedf[rangedf$year == 2017,], aes(yintercept=rangedf$sup[4]), colour="black", lty = "dashed") +
+ geom_rect(data=rerangedf, aes(xmin=xmin, xmax=xmax,
+                                    ymin=ymin, ymax=ymax),
+                                    alpha=.2,fill=factor("black"), inherit.aes = FALSE)
+
+grid.arrange(b,a, ncol = 1, nrow = 2)
+
+############### REFAIRE TOUTES LES IMAGES EN FORMAT PDF ##############
+
+######### DCM avec la PAR (LETELIER 2004)
+
+PARanalysis <-ldply(as.list(PAR_files),function(file){
+  
+  #Opening the file in a open-only mode
+  ncfile   <<- nc_open(file, write = FALSE, verbose = FALSE, suppress_dimvals = FALSE)
+  
+  #Dimensions
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  cycle_number <- ncvar_get(ncfile,"CYCLE_NUMBER")
+  cycle_number <- cycle_number[N_PROF]
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER")
+  
+  FloatInfo<-list(N_PROF=N_PROF,
+                  N_LEVELS=N_LEVELS,
+                  juld = juld,
+                  pres=pres,
+                  lon=lon,
+                  lat=lat,
+                  cycle_number = cycle_number
+  )
+  
+  show(file)
+  
+  chladf <- ExtractVar("CHLA", FloatInfo)
+  chladf <- chladf[-(which(chladf$qc == 4)),]
+  pardf <- ExtractVar("DOWNWELLING_PAR", FloatInfo)
+  tempdf <- ExtractVar("TEMP",FloatInfo)
+  psaldf <- ExtractVar("PSAL",FloatInfo)
+  
+  chladf <- var_average(chladf)
+  pardf <- var_average(pardf)
+  tempdf <- var_average(tempdf)
+  tempdf$value[which(tempdf$qc == 4 | tempdf$qc == 3)] <- NA
+  psaldf <- var_average(psaldf)
+  psaldf$value[which(psaldf$qc == 4 | psaldf$qc == 3)] <- NA
+  pardf <- match_df(pardf, chladf, on = c("juld","depth"))
+  chladf <- match_df(chladf, pardf, on = c("juld","depth"))
+  tempdf <- match_df(tempdf, chladf, on = c("juld","depth"))
+  psaldf <- match_df(psaldf, pardf, on = c("juld","depth"))
+  chladf <- match_df(chladf, psaldf, on = c("juld","depth"))
+  pardf <- match_df(pardf, psaldf, on = c("juld","depth"))
+  
+  psal <- gsw_SA_from_SP(psaldf$value,psaldf$depth,psaldf$lon,psaldf$lat)
+  temp <- gsw_CT_from_t(psal,tempdf$value,psaldf$depth)
+  sigma <- gsw_sigma0(psal,temp)
+  
+  #Construction du data frame final a lieu ici
+  data.frame(depth         = chladf$depth,
+             juld          = chladf$juld,
+             fluo          = chladf$value,
+             par           = pardf$value,
+             sigma         = sigma,
+             day           = month.day.year(chladf$juld,c(1,1,1950))$day,
+             month         = month.day.year(chladf$juld,c(1,1,1950))$month,
+             year          = month.day.year(chladf$juld,c(1,1,1950))$year,
+             DOY           = as.integer(strftime(as.Date(chladf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             lon           = chladf$lon,
+             lat           = chladf$lat,
+             Platform      = as.numeric(unique(id)),
+             type          = "Argo")
+})
+
+PARanalysis <- transform(PARanalysis,id=as.numeric(factor(juld)))
+
+tmp <- PARanalysis[PARanalysis$id == i,]
+ggplot(tmp, aes(x = fluo, y = par)) + 
+  geom_path() + ggtitle(i)
+i <- i + 1 
+
+parreject <- c(9,10,12,16,26,44,47,55,72,83,101,45,43,42,40,39,37,35,33,32,48,61,85,
+               208,206,192,152,148,141,126,123,110,116,137)
+
+PARanalysis <- PARanalysis[!(PARanalysis$id %in% parreject),]
+
+tmp <- PARanalysis[PARanalysis$year == 2017,]
+tmp <- tmp[-(which(is.na(tmp$sigma)==TRUE)),]
+rownames(tmp) <- NULL
+tmp <- transform(tmp,id=as.numeric(factor(juld)))
+
+df <- ddply(tmp, ~juld, summarize,
+            bottom = max(depth, na.rm =T),
+            min = min(depth, na.rm = T),
+            sigmamax = sigma[which.max(fluo)],
+            par = par[which.max(fluo)],
+            maxfluo = max(fluo))
+
+df <- df[-(which(df$bottom < 100)),]
+df <- df[-(which(df$bottom == df$min)),]
+df <- df[-(which(df$min > 10)),]
+
+tmp <- tmp[tmp$juld %in% df$juld,]
+
+range2017 <- range(info2017$mean)
+
+ggplot(tmp, aes(x = fluo, y = par)) +
+  geom_point(size = 1) + geom_point(data = df, aes(x = maxfluo, y = par), color = "red", size = 1) +
+  xlab("Chlorophyll a (mg/m³)") + ylab("PAR (microMoleQuanta/m²/sec)")
