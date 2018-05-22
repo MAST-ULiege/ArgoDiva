@@ -615,15 +615,15 @@ rmse = sqrt(sum((hplc$chla_hplc - rmse_chla_vec)^2)/length(hplc$depth_hplc))
 
 
 #CDOM analysis
-tmp <- cdom_profiles[cdom_profiles$id == i,]
-ggplot(tmp, aes(x = cdom, y = depth)) + geom_point() + 
-  scale_y_reverse()
-i <- i + 1
+# tmp <- cdom_profiles[cdom_profiles$id == i,]
+# ggplot(tmp, aes(x = cdom, y = depth)) + geom_point() + 
+#   scale_y_reverse()
+# i <- i + 1
 
 
 cdom_profiles<- ddply(cdom_profiles,~month, transform, season=1*(month %in% c(12,1,2))+
-                              2*(month %in% c(3,4,5 ))+
-                              3*(month %in% c(6,7,8 ))+
+                              2*(month %in% c(3,4,5 )) +
+                              3*(month %in% c(6,7,8 )) +
                               4*(month %in% c(9,10,11 )))
 
 a <- ggplot(cdom_profiles, aes(x = cdom, y =depth, colour = factor(Platform))) + 
@@ -665,18 +665,156 @@ ggplot(bin2df, aes(x = cdom, y =depth)) +
 ggplot(bin2df, aes(x = cdom, y =depth)) + 
   geom_point(size = 0.5) + scale_y_reverse() + stat_smooth(span=1, aes(outfit=fit2<<-..y..))
 
+########## ALL PROFILES #################
 
+filename <- c("6900807_Mprof.nc","6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
+
+# FUNCTION TO BE USED
+ExtractVar <- function(Var,FloatInfo){
+  with(FloatInfo,{
+    # This function should return a dataframe for variable with value, qc, iprofile and ilevel
+    lvar             <- ncvar_get(ncfile,Var)
+    lvar_qc          <- ncvar_get(ncfile,paste0(Var,"_QC"))
+    lvar_qctab       <- llply(lvar_qc,function(qcstring){
+      as.numeric(unlist(strsplit(qcstring,split="")))
+    })
+    lvar_qctab<-do.call(cbind,lvar_qctab)
+    
+    lvar_dir       <- ncvar_get(ncfile,"DIRECTION")
+    lvar_direction <- llply(lvar_dir,function(dirstring){
+      strsplit(dirstring,split="")
+    })
+    lvar_direction <- unlist(lvar_direction)
+    # making dataframes, removing the NANs  
+    alevels <- 1:N_LEVELS
+    d <- ldply(as.list(1:N_PROF),function(iprof){
+      indexes <- !(is.na(lvar[,iprof])|is.na(lvar[,iprof]))
+      if(sum(indexes) == 0){
+        return (data.frame())
+      }
+      
+      data.frame(value    = lvar[indexes,iprof],
+                 qc       = as.integer(lvar_qctab[indexes,iprof]),
+                 alevel   = alevels[indexes],
+                 depth    = pres[indexes,iprof],
+                 dir      = lvar_direction[iprof],
+                 aprofile = iprof,
+                 variable = Var)
+    })
+    
+    d$juld <- juld[d$aprofile]
+    d$lon  <- lon[d$aprofile]
+    d$lat  <- lat[d$aprofile]
+    
+    return(d=d)
+  })
+}  
+
+#MEDIAN FILTER OVER 5 POINTS
+mmed <- function(x,n=5){runmed(x,n)}
+
+#NORMALIZATION (FOR FLUO DATA BEFORE GAUSSIAN FITTING FOR INSTANCE)
+normalize <- function(data){
+  data <- (data - min(data, na.rm = T))/(max(data, na.rm = T) - min(data, na.rm = T))
+}
+
+#Get each profile from ARGO data -----
+profiles <- ldply(as.list(filename),function(file){
+  
+  #Opening the file in a open-only mode
+  ncfile   <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
+  
+  #Dimensions
+  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
+  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
+  juld     <- ncvar_get(ncfile,"JULD")
+  pres     <- ncvar_get(ncfile,"PRES")
+  lon      <- ncvar_get(ncfile,"LONGITUDE")
+  lat      <- ncvar_get(ncfile,"LATITUDE")
+  
+  FloatInfo <- list(N_PROF=N_PROF,
+                    N_LEVELS=N_LEVELS,
+                    juld=juld,
+                    pres=pres,
+                    lon=lon,
+                    lat=lat)
+  
+  chladf <- ExtractVar("CHLA", FloatInfo)
+  if (file == "7900591_Mprof.nc" | file == "7900592_Mprof.nc"){
+    cdomdf <- as.data.frame(rep(NA, length(chladf$value)))
+    colnames(cdomdf) <- "value"
+  }else{
+    cdomdf <- ExtractVar("CDOM", FloatInfo)
+  }
+  
+  # #fluorescence conversion, respectively to each float
+  
+  # CHLA = (FLUO_CHLA - DARK_CHLA) * SCALE_CHLA
+  # => FLUO_CHLA = (CHLA / SCALE_CHLA) + DARK_CHLA
+  
+  # if (check_data == "FLUO"){
+  #   if (file == "6900807_Mprof.nc"){
+  #     chladf$value <- (chladf$value / fluo_param[[1]][1]) + fluo_param[[1]][2] 
+  #   }
+  #   else if (file == "6901866_Mprof.nc"){
+  #     chladf$value <- (chladf$value / fluo_param[[2]][1]) + fluo_param[[2]][2] 
+  #   }
+  #   else if (file == "7900591_Mprof.nc"){
+  #     chladf$value <- (chladf$value / fluo_param[[3]][1]) + fluo_param[[3]][2] 
+  #   }
+  #   else if (file == "7900592_Mprof.nc"){
+  #     chladf$value <- (chladf$value / fluo_param[[4]][1]) + fluo_param[[4]][2] 
+  #   }}
+  
+  id <- ncvar_get(ncfile, "PLATFORM_NUMBER") 
+  
+  data.frame(depth    = chladf$depth,
+             juld     = chladf$juld,
+             fluo     = chladf$value,#fluo means FChla (like in Xing et al. 2017)
+             cdom     = cdomdf$value,
+             qc       = chladf$qc,
+             day      = month.day.year(chladf$juld,c(1,1,1950))$day,
+             month    = month.day.year(chladf$juld,c(1,1,1950))$month,
+             year     = month.day.year(chladf$juld,c(1,1,1950))$year,
+             DOY      = as.integer(strftime(as.Date(chladf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             lon      = chladf$lon,
+             lat      = chladf$lat,
+             dir      = chladf$dir,
+             Platform = as.numeric(unique(id)),
+             type     = "Argo")
+})
+
+#REMOVE BAD DATA (I.E. QC = 4 FOR NEGATIVE SPIKES, JUMPS, ETC.)
+#DELETION OF DEPTH WITH BAD DATA
+profiles <- profiles[-(which(profiles$qc == 4)),] 
+
+#REMOVE DESCENT PROFILES
+profiles <- profiles[-(which(profiles$dir == "D")),]
+rownames(profiles) <- NULL
+
+#CREATION OF PROFILE IDs & REORDER DATA FRAME ACCORDING TO IT
+profiles <- transform(profiles,id=as.numeric(factor(juld)))
+profiles <- profiles[order(profiles$id),]
+
+##################
 
 
 #test
 nocdom <- profiles[profiles$Platform == 7900591 | profiles$Platform == 7900592,]
 nocdom <- transform(nocdom,id=as.numeric(factor(juld)))
+
+#AUSSI APPLIQUER QC AND SMOOTHING FOR THEIR PROFILES !!
+ncdom <- nocdom[-(which(nocdom$qc == 4)),] 
+rownames(nocdom) <- NULL
+
 tmp <- nocdom[nocdom$id == i,]
+tmp$fluo <- mmed(tmp$fluo, 5)
 ggplot(tmp, aes(x = fluo, y =depth)) + 
-  geom_path(size = 0.5) + scale_y_reverse() 
+  geom_path(size = 0.5) + scale_y_reverse() + ylim(c(100,0))
 
 MaxDepth <- max(tmp$depth)#Max depth of the profile
-TopDepth <- tmp$depth[which.min(tmp$fluo)]
+#TopDepth <- tmp$depth[which.min(tmp$fluo)]
+TopDepth <- tmp$depth[which.max(tmp$fluo):length(tmp$fluo)][which.min(tmp$fluo[which.max(tmp$fluo):length(tmp$fluo)])]
 
 test <- data.frame(depth = approx(bin2df$depth, bin2df$cdom, tmp$depth)$x, 
                       cdom = approx(bin2df$depth, bin2df$cdom, tmp$depth)$y)
@@ -693,6 +831,29 @@ fluo_test_cor <- tmp$fluo - (slope_fdom*tmp$cdom) - C
 tmp <- cbind(tmp, fluo_test_cor)
 
 ggplot(tmp, aes(x = fluo, y = depth)) + geom_point() + scale_y_reverse() + 
-  geom_point(data = tmp, aes(x = fluo_test_cor, y = depth), colour = "red")
+  geom_point(data = tmp, aes(x = fluo_test_cor, y = depth), colour = "red") +
+  geom_vline(xintercept = 0, lty = "dashed")
 
 i <- i + 1
+
+
+# #RESULTS -> profiles 108, 130,165, 167, 201, 212 are not good, everything else is OK
+# check_bad_correction <- nocdom[nocdom$id %in% c(108,130,165, 167, 201, 212),]
+# check_bad_correction <- ddply(check_bad_correction, ~juld, summarize,
+#                               day = day[1],
+#                               year = year[1],
+#                               month = month[1],
+#                               lat = lat[1],
+#                               lon = lon[1],
+#                               platform = Platform[1],
+#                               surface = min(depth),
+#                               bottom = max(depth),
+#                               fluo_surface = fluo[1],
+#                               depth_null = depth[which.min(fluo)],
+#                               fluo_null = fluo[which.min(fluo)])
+
+#Issue from the min depth (needs to be taken below the fluo MAX) -> note qu'en corrigeant d'abord le quenching, cette
+# précaution n'est plus nécessaire mais le quenching correction doit se faire après Xing correction je dirais.. 
+
+#####NOTE ADDITIONNELLE #####
+#The mean profile stops at 950m so it is normal to non have any points after correction.
