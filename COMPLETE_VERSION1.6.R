@@ -190,7 +190,7 @@ argodf<- ddply(profiles,~juld,summarize,
                     qc = qc[which.max(fluo)],
                     depthmax = depth[which.max(fluo)],
                     maxvalue = fluo[which.max(fluo)],
-                    depthmin = depth[which.max(fluo):length(fluo)][which.min(fluo[which.max(fluo):length(fluo)])],
+                    depthmin = depth[which.max(fluo):length(fluo)][which.min(fluo[which.max(fluo):length(fluo)])],#to not take into account surface depth where chlorophyll can be minimum
                     integration = sum(fluo),
                     bottomdepth = max(depth),
                     min_depth = min(depth),
