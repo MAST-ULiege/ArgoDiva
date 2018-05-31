@@ -185,6 +185,13 @@ smoothed_cdom <- ldply(as.list(unique(profiles$id)), function(i){
 profiles[,3] <- smoothed_fluo
 profiles[,4] <- smoothed_cdom
 
+#EXAMPLE DCM
+# tmp <- profiles[profiles$id == 110,]
+# ggplot(tmp, aes(x = fluo, y = depth)) + geom_path() + scale_y_reverse() +
+#   xlab(expression(Chlorophyll~a~(mg/m^3))) + ylab("Depth (m)") + 
+#   theme(text=element_text(size=12)) + geom_vline(xintercept = 0, colour = "red",
+#                                                  lty = "dashed")
+
 #Construction of an ARGO-only dataframe -> first guess value for Zmax [NLS fit]
 argodf<- ddply(profiles,~juld,summarize,
                     qc = qc[which.max(fluo)],
@@ -387,6 +394,24 @@ quenching_correction <- function(fluo,depth,MLD) {
   }
 }
 
+#FDOM CORRECTION EXAMPLE
+# tmp <- profiles[profiles$id == 150,]
+# a <- ggplot(tmp, aes(x = fluo, y  = depth)) + geom_point(colour = "red") + 
+#   scale_y_reverse() + geom_vline(xintercept = 0, colour = "black", lty = "dashed") +
+#   geom_point(data = tmp2, aes(x = fluo, y = depth)) +
+#   xlab(expression(Chlorophyll~a~(mg/m^3))) + ylab("Depth (m)") + 
+#   theme(text=element_text(size=12)) + 
+#   geom_hline(yintercept = 70.7, colour = "black", lty = "dashed")
+#   
+# b <- ggplot(tmp, aes(x = cdom, y  = depth)) + geom_point(colour = "purple") + 
+#   scale_y_reverse() + geom_hline(yintercept = 70.7, colour = "black", lty = "dashed") +
+#   xlab(expression(CDOM~(ppb))) + ylab("Depth (m)") + 
+#   theme(text=element_text(size=12)) +
+#   theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
+#         axis.ticks.y=element_blank()) 
+# 
+# grid.arrange(a,b,nrow = 1, ncol=2)
+
 #QUENCHING CORRECTION
 fluo_NPQ <- ldply(as.list(1:length(unique(profiles$id))), function(i){
   tmp <- profiles[profiles$id == i,]
@@ -394,6 +419,22 @@ fluo_NPQ <- ldply(as.list(1:length(unique(profiles$id))), function(i){
   data.frame(fluo_NPQ = correction)
 })
 profiles$fluo <- fluo_NPQ$fluo_NPQ
+
+#NPQ CORRECTION EXAMPLE
+tmp <- profiles[profiles$id ==6,]
+a <- ggplot(tmp2, aes(x = fluo, y = depth)) + geom_path() + 
+  scale_y_reverse() + ylim(c(100,0)) + 
+  xlab(expression(Chlorophyll~a~(mg/m^3))) + ylab("Depth (m)") +
+  theme(text=element_text(size=12)) 
+
+b <- ggplot(tmp, aes(x = fluo, y = depth)) + geom_path() + 
+  scale_y_reverse() + ylim(c(100,0)) + 
+  xlab(expression(Chlorophyll~a~(mg/m^3))) + ylab("Depth (m)") +
+    theme(text=element_text(size=12)) +
+    theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
+          axis.ticks.y=element_blank())
+
+grid.arrange(a,b,nrow = 1, ncol = 2)
 
 #FIT
 #Following Mignot et al. 2011
@@ -630,39 +671,30 @@ classification <- ldply(as.list(1:length(unique(profiles$id))), function(i){
 })
 
 #GRAPHICAL RECAP OF TYPES OF PROFILES
-# i <- 73
+# i <- 21
 # tmp <- profiles[profiles$id==i,]#gappy data, no interpolation
-# if(check_data == "FLUO"){
-#   tmp$fluo <- normalize(tmp$fluo)
-# }
 # depthindex <- which.min(tmp$depth <= 100)
 # tab <- data.frame(x=tmp$depth[1:depthindex],y=tmp$fluo[1:depthindex])
 # x <- tab$x
-# plot(y~x, data=tab, type="l", lwd = 2)
-# lines(x = tab$x, fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
-#                           sigmoidf$s[i]),col=2, add=T, xlim=range(tab$x), lwd = 2)
-# lines(x = tab$x, fgauss(x,gaussiandf$Fsurf[i], gaussiandf$Zdemi[i],
-#                         gaussiandf$Fmax[i], gaussiandf$Zmax[i], gaussiandf$dz[i]),
-#       col=4, add=T, xlim=range(tab$x), lwd = 2)
-# 
-# depthindex <- which.min(tmp$depth <= 100)
 # tmp <- tmp[1:depthindex,]
-# # a <- ggplot(tmp, aes(x = fluo, y = depth)) + geom_path() + scale_y_reverse()
+# 
 # test <- as.data.frame(fgauss(x,gaussiandf$Fsurf[i], gaussiandf$Zdemi[i],
 #        gaussiandf$Fmax[i], gaussiandf$Zmax[i], gaussiandf$dz[i]))
 # colnames(test) <- "fit"
 # test <- cbind(tmp$depth, test)
-# d <- ggplot(tmp, aes(x = fluo, y = depth)) + geom_path() + scale_y_reverse()+
-#   geom_path(data = test, aes(x = fit, y = tmp$depth), colour = "green") +
-#   xlab("Fluorescence (RFU)") + ylab("Depth (m)")
+# ggplot(tmp, aes(x = fluo, y = depth)) + geom_path() + scale_y_reverse()+
+#   geom_path(data = test, aes(x = fit, y = tmp$depth), colour = "red") +
+#   xlab(expression(Chlorophyll~a~(mg/m^3))) + ylab("Depth (m)") +
+#     theme(text=element_text(size=16)) 
+#   #   theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
+#   #         axis.ticks.y=element_blank()) 
+#   # 
+# 
+# i <- i +1
+# 
 # test2 <- as.data.frame(fsigmoid(x,sigmoidf$Fsurf[i], sigmoidf$Zdemi[i],
 #                                 sigmoidf$s[i]))
-# colnames(test2) <- "fit"
-# test2 <- cbind(tmp$depth, test2)
-# e <- ggplot(tmp, aes(x = fluo, y = depth)) + geom_path() + scale_y_reverse()+
-#   geom_path(data = test2, aes(x = fit, y = tmp$depth), colour = "red") +
-#   xlab("Fluorescence (RFU)") + ylab("Depth (m)")
-# #89,197,123,73,21 -> For types of profiles
+# # #89,197,123,73,21 -> For types of profiles
 
 
 #count profiles
@@ -720,10 +752,10 @@ HSCdf <- ldply(as.list(1:length(unique(gaussianprofdf$juld))), function(i){
   }else if(max(tmp$fluo, na.rm = T) == tmp$fluo[NonNAindex]){
     result <- "HSC"
   }else if(max(tmp$fluo, na.rm = T)*0.90 < tmp$fluo[NonNAindex]){
-    result <- "Others"
+    result <- "Undetermined"
   }
   else{
-    result <- "Modified_DCM"
+    result <- "Modified DCM"
   }
   data.frame(Category = result, juld = tmp$juld[1], file = tmp$Platform[1])
 })
@@ -733,8 +765,8 @@ HSCdf <- transform(HSCdf,id=as.numeric(factor(juld)))
 # GAUSSIAN VISU ONLY
 t1 <- which(HSCdf$Category == "HSC")
 t2 <- which(HSCdf$Category == "DCM")
-t3 <- which(HSCdf$Category == "Modified_DCM")
-t4 <- which(HSCdf$Category == "Others")
+t3 <- which(HSCdf$Category == "Modified DCM")
+t4 <- which(HSCdf$Category == "Undetermined")
 
 #CHECK VISU
 # j <- 1
@@ -750,15 +782,20 @@ t4 <- which(HSCdf$Category == "Others")
 
 #TEMPORAL STATS ON PSEUDO GAUSSIAN PROFILES
 temporal_stats <- cbind(gaussdata, HSCdf)
+
+test <- ddply(temporal_stats, ~month, summary)
+
 ggplot(temporal_stats, aes(month)) + geom_histogram(aes(fill=Category), 
                                                     binwidth = .5,
-                                                    size = 1) +
-  ylab("Counts") + scale_x_discrete("Month",
+                                                    size = 1,
+                                                    col = "black") +
+  ylab("Number of profiles") + scale_x_discrete("Month",
                                     limits = seq(1,12,by=1)) +
-  theme(text = element_text(size=12))
+  theme(text = element_text(size=12)) + 
+  scale_fill_manual(values = c("yellow4","yellow3","steelblue2","steelblue4"))
 
 
-modified_DCM <- temporal_stats[temporal_stats$Category == "Modified_DCM",]
+modified_DCM <- temporal_stats[temporal_stats$Category == "Modified DCM",]
 modified_DCM <- transform(modified_DCM,id=as.numeric(factor(juld)))
 DCM <- temporal_stats[temporal_stats$Category == "DCM",]
 DCM <- transform(DCM,id=as.numeric(factor(juld)))
@@ -1234,12 +1271,11 @@ sigma_ratio <- ldply(as.list(1:length(MLDdf2$id)), function(i){
 
 TOTAL2$sigma_ratio <- sigma_ratio$ratio
 
-ggplot(TOTAL2, aes(sigma_ratio, fill=Category)) + geom_histogram(data = TOTAL2, binwidth = 0.01, 
-                                                                   breaks=seq(0.80, 1.1, by = 0.005),
-                                                                              col = "black") + 
-  ylab("Number of profiles") + xlab(expression(paste(sigma["DCM"],"/",sigma["MLD"]))) +  scale_fill_manual(values=c("steelblue4","steelblue2"))
-  theme(text = element_text(size=12)) 
-  
+ggplot(TOTAL2, aes(sigma_ratio, fill=Category)) +  geom_histogram(data = TOTAL2, col = "black")+ 
+  theme(legend.position="none") +
+  ylab("Number of profiles") + xlab(expression(paste(sigma["DCM"],"/",sigma["MLD-MAX"]))) + 
+    scale_fill_manual(values=c("steelblue4","steelblue2")) +
+  theme(text = element_text(size=13)) 
   
 #REARRANGE TOTAL2 AND PUT DEPTH IN IT THEN CHECK WITH TOTAL_DCM_DETH_SIGMA
 
@@ -1260,43 +1296,64 @@ TOTAL2 <- ddply(TOTAL2,~month, transform, Season=1*(month %in% c(12,1,2)) +
                        3*(month %in% c(6,7,8 )) +
                        4*(month %in% c(9,10,11 )))
 
+# write.table(TOTAL2, file="FINAL_CHECK.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
+#             row.names = FALSE, col.names = FALSE)
+# 
+
+#MLD time of event
+# new_time <- as.Date(MLDdf2$juld, origin = as.Date("1950-01-01"))
+# TOTAL2$date <- new_time
+# TOTAL2$MLD <- MLDdf2$MLD
+# 
+# navarro8 <- ddply(TOTAL2, ~month~year, summarize,
+#                   mld = mean(MLD),
+#                   dcm = mean(Zmax))
+# 
+# ggplot(TOTAL2, aes(x = date, y = MLD)) + 
+#   geom_path() + geom_path(data = TOTAL2, aes(x = date, y = Zmax), colour = "red")
+
+
+# chloro_dcm <- ddply(TOTAL_DCM_PROFILES, ~month, summarize,
+#                     max = max(fluo),
+#                     month = unique(month))
+
 # write.table(TOTAL2, file="FULL_TOTAL_RATIO.txt", sep=" ", na = "NA", dec = ".", eol = "\r\n",
 #             row.names = FALSE, col.names = FALSE)
 
 
 #Black Sea coordinates
-bs <- c(26.5,40,43,46)
-myMap <-get_map(location=bs, source="google", crop=FALSE, maptype = "terrain")
-ggmap(myMap) +
-  geom_point(aes(x=lon, y=lat, color=factor(Season)),
-             data = TOTAL2, alpha = 1) + #+facet_grid(file) + scale_color_manual(values=c("red", "green", "yellow","blue"))
-labs(x = "Longitude (°)", y = "Latitude (°)", color = "Season\n") +
-  scale_color_manual(labels = c("Winter", "Spring","Summer","Autumn"),
-                     values = c("orangered","#7CAE00","#00BFC4","#C77CFF")) +
-  #annotate("point", x = 29, y = 43.1, colour = "black") +
-  geom_point(aes(x = 29, y = 43.1), color="black", shape = 4, size = 3) + facet_grid(~Category)
-
-ggmap(myMap) +
-  geom_point(aes(x=lon, y=lat, color=factor(Season)),
-             data = TOTAL2, alpha = 1) + #+facet_grid(file) + scale_color_manual(values=c("red", "green", "yellow","blue"))
-  labs(x = "Longitude (°)", y = "Latitude (°)", color = "Season\n") +
-  scale_color_manual(labels = c("Winter", "Spring","Summer","Autumn"),
-                     values = c("orangered","#7CAE00","#00BFC4","#C77CFF")) +
-  #annotate("point", x = 29, y = 43.1, colour = "black") +
-  geom_point(aes(x = 29, y = 43.1), color="black", shape = 4, size = 3)
-
-arthur <- cbind(HSCdf$Category, gaussprofiles)
-colnames(arthur)[1] <- "Category"
-  
-#April Map of profiles category
-arthur <- arthur[arthur$month == 4,]
-
-ggmap(myMap) +
-  geom_point(aes(x=lon, y=lat, color=factor(Category)),
-             data = arthur, alpha = 1) + #+facet_grid(file) + scale_color_manual(values=c("red", "green", "yellow","blue"))
-  labs(x = "Longitude (°)", y = "Latitude (°)", color = "Category\n") +
-  scale_color_manual(labels = c("HSC", "MOD_DCM","DCM","OTHERS"),
-                     values = c("orangered","#7CAE00","#00BFC4","#C77CFF"))
+# bs <- c(26.5,40,43,46)
+# myMap <-get_map(location=bs, source="google", crop=FALSE, maptype = "terrain")
+# ggmap(myMap) +
+#   geom_point(aes(x=lon, y=lat, color=factor(Season)),
+#              data = TOTAL2, alpha = 1) + #+facet_grid(file) + scale_color_manual(values=c("red", "green", "yellow","blue"))
+# labs(x = "Longitude (°)", y = "Latitude (°)", color = "Season\n") +
+#   scale_color_manual(labels = c("Winter", "Spring","Summer","Autumn"),
+#                      values = c("orangered","#7CAE00","#00BFC4","#C77CFF")) +
+#   #annotate("point", x = 29, y = 43.1, colour = "black") +
+#   geom_point(aes(x = 29, y = 43.1), color="black", shape = 4, size = 3) + facet_grid(~Category)
+# 
+# ggmap(myMap) +
+#   geom_point(aes(x=lon, y=lat, color=factor(Season)),
+#              data = TOTAL2, alpha = 1) + #+facet_grid(file) + scale_color_manual(values=c("red", "green", "yellow","blue"))
+#   labs(x = "Longitude (°)", y = "Latitude (°)", color = "Season\n") +
+#   scale_color_manual(labels = c("Winter", "Spring","Summer","Autumn"),
+#                      values = c("orangered","#7CAE00","#00BFC4","#C77CFF")) +
+#   #annotate("point", x = 29, y = 43.1, colour = "black") +
+#   geom_point(aes(x = 29, y = 43.1), color="black", shape = 4, size = 3)
+# 
+# arthur <- cbind(HSCdf$Category, gaussprofiles)
+# colnames(arthur)[1] <- "Category"
+#   
+# #April Map of profiles category
+# arthur <- arthur[arthur$month == 4,]
+# 
+# ggmap(myMap) +
+#   geom_point(aes(x=lon, y=lat, color=factor(Category)),
+#              data = arthur, alpha = 1) + #+facet_grid(file) + scale_color_manual(values=c("red", "green", "yellow","blue"))
+#   labs(x = "Longitude (°)", y = "Latitude (°)", color = "Category\n") +
+#   scale_color_manual(labels = c("HSC", "MOD_DCM","DCM","OTHERS"),
+#                      values = c("orangered","#7CAE00","#00BFC4","#C77CFF"))
 
 ####### USE LAST COMPIL
 
@@ -1529,9 +1586,9 @@ b <- ggplot(perioddf2, aes(x=NORM_TOT_DCM_DEPTH, y=depth, group=juld)) +
   geom_hline(data = data.frame(yint=as.vector(iso2017$p1), 
                                group=c("February", "March", "April","May","June","July","August","September")),
              aes(yintercept=yint), colour = "red", linetype = "dotted") +
-  geom_hline(data = data.frame(yint=as.vector(dcm2017$mean), 
-                               group=c("February", "March", "April","May","June","July","August","September")),
-             aes(yintercept=yint), colour = "yellow")  +
+  # geom_hline(data = data.frame(yint=as.vector(dcm2017$mean), 
+  #                              group=c("February", "March", "April","May","June","July","August","September")),
+  #            aes(yintercept=yint), colour = "yellow")  +
   geom_hline(data = data.frame(yint = as.vector(mld2017$meanMLD),
                                group = c("February", "March", "April","May","June","July","August","September")),
              aes(yintercept = yint), colour = "green") 
@@ -1707,3 +1764,21 @@ range2017 <- range(info2017$mean)
 ggplot(tmp, aes(x = fluo, y = par)) +
   geom_point(size = 1) + geom_point(data = df, aes(x = maxfluo, y = par), color = "red", size = 1) +
   xlab("Chlorophyll a (mg/m³)") + ylab("PAR (microMoleQuanta/m²/sec)")
+
+#PRE-DIVA
+#get MOD DCM 
+MODDCM <- TOTAL2[TOTAL2$Category == "MODDCM",]
+
+a <- ggplot(TOTAL2, aes(x= DOY, y = sigma_dcm)) +
+  geom_point() + scale_color_manual(values = c("black", "red")) + theme(legend.position = "none") +
+  geom_smooth() + ylab(expression(DCM~potential~density~anomaly~(kg/m^3))) + xlab("Day Of Year (DOY)") + 
+  geom_point(data = MODDCM, aes(x = DOY, y = sigma_dcm), colour = "red") + 
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
+  axis.ticks.x=element_blank()) + theme(text=element_text(size=12)) 
+
+b <- ggplot(TOTAL2, aes(x= DOY, y = Zmax)) +
+  geom_point() + scale_color_manual(values = c("black", "red")) + theme(legend.position = "none") +
+  geom_smooth() + ylab("DCM depth (m)") + xlab("Day Of Year (DOY)") + 
+  geom_point(data = MODDCM, aes(x = DOY, y = Zmax), colour = "red") + theme(text=element_text(size=12)) 
+
+grid.arrange(a,b,nrow = 2, ncol = 1)
