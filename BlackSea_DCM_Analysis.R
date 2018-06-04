@@ -1,3 +1,9 @@
+########################################################
+# SCRIPT FOR CHLOROPHYLL A ANALYSES IN THE BLACK SEA   #
+# (AND OTHER MARGINAL FEATURES)                        #
+########################################################
+
+
 library(ncdf4)
 library(ggplot2)
 library(plyr)
