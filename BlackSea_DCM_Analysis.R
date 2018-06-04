@@ -1674,4 +1674,20 @@ ggplot(check3, aes(date)) +
   theme(text=element_text(size=12)) + theme(axis.text.x = element_text(color="black", size=10, angle=90)) +
   geom_bar(data = check3, aes(weight=n, colour="black"), fill="steelblue3",colour="black")
 
+#better plot based on http://www.seasonaladjustment.com/tag/irregular/
 
+#some stats before plotting a radia seasonal graph
+statDCM <- ddply(TOTAL2, ~year~month, summarize,
+                 meandcm = mean(Zmax),
+                 maxdcm = max(Zmax))
+trick <- data.frame(year = rep(2013,11), month = 1:11, meandcm = rep(NA,11), maxdcm = rep(NA,11))
+statDCM <- rbind(statDCM, trick)
+
+p1 <- ggplot(TOTAL2,aes(year,Zmax, colour=Category)) +
+  geom_point() + geom_line(data = statDCM, aes(x = year, y = meandcm), colour = "red") +
+  #geom_point(data = statDCM, aes(x = year, y = meandcm), colour = "red") +
+  scale_colour_manual(values = c("black","orange")) + theme(legend.position = "none")
+  #geom_point(data = statDCM, aes(x = year, y = maxdcm), colour= "green")
+
+p1 + facet_grid(.~month) + facet_wrap(~month, ncol = 4) + 
+  coord_polar(theta="y")
