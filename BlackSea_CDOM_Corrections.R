@@ -447,11 +447,11 @@ quenching_correction <- function(fluo,depth,MLD) {
 descent$cdom <- mmed(descent$cdom, 5)
 descent$chla <- mmed(descent$chla, 5)
 
-ggplot(descent, aes(x = chla, y = depth)) + geom_path() +
-  scale_y_reverse()
-
-ggplot(descent, aes(x = cdom, y = depth)) + geom_path() +
-  scale_y_reverse()
+# ggplot(descent, aes(x = chla, y = depth)) + geom_path() +
+#   scale_y_reverse()
+# 
+# ggplot(descent, aes(x = cdom, y = depth)) + geom_path() +
+#   scale_y_reverse()
 
 #250m profile (deployment profile)
 rownames(descent) <- NULL
@@ -532,28 +532,9 @@ b <- ggplot(cdom_profiles, aes(x = fluo, y =depth, colour = factor(Platform))) +
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
         axis.ticks.y=element_blank())
 
-grid.arrange(a,b, ncol=2, nrow = 1)
+#grid.arrange(a,b, ncol=2, nrow = 1)
 
 #Creation of a basin scale CDOM profile (no real seasonality has been spotted, at least in the deeper part)
-bindf <- ldply(as.list(1:length(unique(cdom_profiles$id))), function(i){
-  tmp <- cdom_profiles[cdom_profiles$id == i,]
-  tmp1 <- tmp[tmp$depth <= 200,]
-  tmp2 <- tmp[tmp$depth > 200 & tmp$depth <= 400,]
-  #tmp3 <- tmp[tmp$depth > 400 & tmp$depth <= 1000,]#on peut allonger un peu loin (regarder bottom max des profils sans CDOM)
-  tmp3 <- tmp[tmp$depth > 400,]
-  bin1 <- as.data.frame(binAverage(tmp1$depth, tmp1$cdom, xmin = 0, xmax = floor(max(tmp1$depth, na.rm = T)), xinc = 1))
-  bin2 <- as.data.frame(binAverage(tmp2$depth, tmp2$cdom, xmin = 200, xmax = floor(max(tmp2$depth, na.rm = T)), xinc = 5))
-  bin3 <- as.data.frame(binAverage(tmp3$depth, tmp3$cdom, xmin = 400, xmax = floor(max(tmp3$depth, na.rm = T)), xinc = 10))
-  bin <- rbind(bin1, bin2, bin3)
-  data.frame(depth = bin$x, cdom = bin$y, juld = tmp$juld[1], platform = tmp$Platform[1])
-})
-
-bin2df <- ddply(bindf, ~depth, summarize,
-                cdom = mean(cdom, na.rm = T))
-
-ggplot(bin2df, aes(x = cdom, y =depth)) + 
-  geom_point(size = 0.5) + scale_y_reverse() + geom_smooth(span=1)
-
 
 #CHOICE TO BE MADE -> bin ONLY one platform CDOM profiles (for consistency at the bottom)
 cdom_test <- cdom_profiles[cdom_profiles$Platform == 6900807,]
@@ -585,7 +566,7 @@ d <- ggplot(bin3df, aes(x = cdom, y = depth)) +
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
         axis.ticks.y=element_blank())
 
-grid.arrange(c,d,nrow = 1, ncol = 2)
+#grid.arrange(c,d,nrow = 1, ncol = 2)
 
 #better plot
 ggplot(cdom_test, aes(x = cdom, y =depth)) + 
@@ -639,6 +620,11 @@ cdom_virtual_validation <- ldply(as.list(1:length(unique(cdom_validation$id))), 
   
 })
 
+# i <- 88
+# tmp <- cdom_validation[cdom_validation$id == 88,]
+# ggplot(tmp, aes(x = fluo, y = depth)) + geom_path() + scale_y_reverse() +
+#   
+
 #TEST OF VALIDATION WITH HPLC
 #NOTE : on peut définir un profil moyen de plein de façon différentes
 #en soi on pourrait également tenter d'inverser le profil de correction (ici 6900807) et de validation (6901866)
@@ -654,6 +640,7 @@ test <- data.frame(depth = approx(bin3df$depth, bin3df$cdom, descent$depth)$x,
                    cdom = approx(bin3df$depth, bin3df$cdom, descent$depth)$y)
 
 descent$cdom_virtual <- test$cdom
+calibrange <- descent[which(descent$depth == TopDepth):which(descent$depth == MaxDepth),]
 
 linearMod_virtual <- lm(chla ~ cdom_virtual, data = calibrange)
 slope_fdom_virtual <- coef(linearMod_virtual)[[2]]
@@ -662,7 +649,7 @@ C_virtual <- coef(linearMod_virtual)[[1]]
 fluo_test_cor <- descent$chla - (slope_fdom_virtual*descent$cdom_virtual) - C_virtual
 descent$fluo_virtual <- fluo_test_cor
 
-rmse <- sqrt(sum((descent$chla_cor1 - descent$fluo_virtual)^2)/length(tmp$fluo_virtual))
+rmse <- sqrt(sum((descent$chla_cor1 - descent$fluo_virtual)^2)/length(descent$fluo_virtual))
 
 ggplot(descent, aes(x = chla, y = depth)) + geom_path(size = 1) +
   scale_y_reverse() + geom_path(data = descent, aes(x = chla_cor1, y = depth), colour = "blue", size = 1) +
@@ -686,156 +673,6 @@ rmse <- sqrt(sum((hplc$chla_hplc - rmse_chla_virtual_vec)^2)/length(hplc$depth_h
 
 ########## ALL PROFILES #################
 
-filename <- c("6900807_Mprof.nc","6901866_Mprof.nc","7900591_Mprof.nc","7900592_Mprof.nc")
-
-# FUNCTION TO BE USED
-ExtractVar <- function(Var,FloatInfo){
-  with(FloatInfo,{
-    # This function should return a dataframe for variable with value, qc, iprofile and ilevel
-    lvar             <- ncvar_get(ncfile,Var)
-    lvar_qc          <- ncvar_get(ncfile,paste0(Var,"_QC"))
-    lvar_qctab       <- llply(lvar_qc,function(qcstring){
-      as.numeric(unlist(strsplit(qcstring,split="")))
-    })
-    lvar_qctab<-do.call(cbind,lvar_qctab)
-    
-    lvar_dir       <- ncvar_get(ncfile,"DIRECTION")
-    lvar_direction <- llply(lvar_dir,function(dirstring){
-      strsplit(dirstring,split="")
-    })
-    lvar_direction <- unlist(lvar_direction)
-    # making dataframes, removing the NANs  
-    alevels <- 1:N_LEVELS
-    d <- ldply(as.list(1:N_PROF),function(iprof){
-      indexes <- !(is.na(lvar[,iprof])|is.na(lvar[,iprof]))
-      if(sum(indexes) == 0){
-        return (data.frame())
-      }
-      
-      data.frame(value    = lvar[indexes,iprof],
-                 qc       = as.integer(lvar_qctab[indexes,iprof]),
-                 alevel   = alevels[indexes],
-                 depth    = pres[indexes,iprof],
-                 dir      = lvar_direction[iprof],
-                 aprofile = iprof,
-                 variable = Var)
-    })
-    
-    d$juld <- juld[d$aprofile]
-    d$lon  <- lon[d$aprofile]
-    d$lat  <- lat[d$aprofile]
-    
-    return(d=d)
-  })
-}  
-
-#MEDIAN FILTER OVER 5 POINTS
-mmed <- function(x,n=5){runmed(x,n)}
-
-#Get each profile from ARGO data -----
-profiles <- ldply(as.list(filename),function(file){
-  
-  #Opening the file in a open-only mode
-  ncfile   <<- nc_open(file, write = FALSE, verbose = TRUE, suppress_dimvals = FALSE)
-  
-  #Dimensions
-  N_PROF   <- ncol(ncvar_get(ncfile,"PRES"))
-  N_LEVELS <- nrow(ncvar_get(ncfile,"PRES"))
-  juld     <- ncvar_get(ncfile,"JULD")
-  pres     <- ncvar_get(ncfile,"PRES")
-  lon      <- ncvar_get(ncfile,"LONGITUDE")
-  lat      <- ncvar_get(ncfile,"LATITUDE")
-  
-  FloatInfo <- list(N_PROF=N_PROF,
-                    N_LEVELS=N_LEVELS,
-                    juld=juld,
-                    pres=pres,
-                    lon=lon,
-                    lat=lat)
-  
-  chladf <- ExtractVar("CHLA", FloatInfo)
-  if (file == "7900591_Mprof.nc" | file == "7900592_Mprof.nc"){
-    cdomdf <- as.data.frame(rep(NA, length(chladf$value)))
-    colnames(cdomdf) <- "value"
-  }else{
-    cdomdf <- ExtractVar("CDOM", FloatInfo)
-  }
-  
-  id <- ncvar_get(ncfile, "PLATFORM_NUMBER") 
-  
-  data.frame(depth    = chladf$depth,
-             juld     = chladf$juld,
-             fluo     = chladf$value,#fluo means FChla (like in Xing et al. 2017)
-             cdom     = cdomdf$value,
-             qc       = chladf$qc,
-             day      = month.day.year(chladf$juld,c(1,1,1950))$day,
-             month    = month.day.year(chladf$juld,c(1,1,1950))$month,
-             year     = month.day.year(chladf$juld,c(1,1,1950))$year,
-             DOY      = as.integer(strftime(as.Date(chladf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
-             lon      = chladf$lon,
-             lat      = chladf$lat,
-             dir      = chladf$dir,
-             Platform = as.numeric(unique(id)),
-             type     = "Argo")
-})
-
-#REMOVE BAD DATA (I.E. QC = 4 FOR NEGATIVE SPIKES, JUMPS, ETC.)
-#DELETION OF DEPTH WITH BAD DATA
-profiles <- profiles[-(which(profiles$qc == 4)),] 
-
-#REMOVE DESCENT PROFILES
-profiles <- profiles[-(which(profiles$dir == "D")),]
-rownames(profiles) <- NULL
-
-#CREATION OF PROFILE IDs & REORDER DATA FRAME ACCORDING TO IT
-profiles <- transform(profiles,id=as.numeric(factor(juld)))
-profiles <- profiles[order(profiles$id),]
-
-##################
-
-#Test on float whithout CDOM sensor
-nocdom <- profiles[profiles$Platform == 7900591 | profiles$Platform == 7900592,]
-#nocdom <- profiles[profiles$Platform == 6900807 | profiles$Platform == 6901866,]
-nocdom <- transform(nocdom,id=as.numeric(factor(juld)))
-rownames(nocdom) <- NULL
-
-#SMOOTHING FOR THEIR PROFILES !!
-tmp <- nocdom[nocdom$id == i,]
-tmp$fluo <- mmed(tmp$fluo, 5)
-ggplot(tmp, aes(x = fluo, y =depth)) +
-  geom_path(size = 0.5) + scale_y_reverse()
-
-MaxDepth <- max(tmp$depth)#Max depth of the profile
-TopDepth <- tmp$depth[which.max(tmp$fluo):length(tmp$fluo)][which.min(tmp$fluo[which.max(tmp$fluo):length(tmp$fluo)])]
-
-#bin3df = new virtual CDOM profile
-test <- data.frame(depth = approx(bin3df$depth, bin3df$cdom, tmp$depth)$x,
-                   cdom = approx(bin3df$depth, bin3df$cdom, tmp$depth)$y)
-
-tmp$cdom <- test$cdom
-
-calibrange <- tmp[which(tmp$depth == TopDepth):which(tmp$depth == MaxDepth),]
-
-linearMod <- lm(fluo ~ cdom, data = calibrange)
-slope_fdom <- coef(linearMod)[[2]]
-C <- coef(linearMod)[[1]]
-
-fluo_test_cor <- tmp$fluo - (slope_fdom*tmp$cdom) - C
-tmp$fluo_cor <- fluo_test_cor
-
-ggplot(tmp, aes(x = fluo, y = depth)) + geom_point() + scale_y_reverse() +
-  geom_point(data = tmp, aes(x = fluo_test_cor, y = depth), colour = "red") +
-  geom_vline(xintercept = 0, lty = "dashed") +
-  xlab(expression(Chlorophyll~a~(mg/m^3)))+ ylab("Depth (m)")  +
-  theme(text=element_text(size=16))
-#scale_x_continuous(breaks = c(0, 0.5))
-# theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
-#       axis.ticks.y=element_blank()) +
-# theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
-#       axis.ticks.y=element_blank())
-
-
-i <- i + 1
 
 #####NOTE ADDITIONNELLE ###############################################################
 #The mean profile stops at 950m so it is normal to non have any points after correction.
@@ -846,38 +683,34 @@ i <- i + 1
 #######################################################
 
 #Test of the mean profile on the GOLD (=launch profile) profile (even if CDOM is provided)
-colnames(descent)[2] <- "fluo"
-ggplot(descent, aes(x = fluo, y =depth)) + 
-  geom_path(size = 0.5) + scale_y_reverse()
 MaxDepth <- max(descent$depth)#Max depth of the profile
-TopDepth <- descent$depth[which.max(descent$fluo):length(descent$fluo)][which.min(descent$fluo[which.max(descent$fluo):length(descent$fluo)])]
+TopDepth <- descent$depth[which.max(descent$chla):length(descent$chla)][which.min(descent$chla[which.max(descent$chla):length(descent$chla)])]
 
-test <- data.frame(depth = approx(bin2df$depth, bin2df$cdom, descent$depth)$x, 
-                   cdom = approx(bin2df$depth, bin2df$cdom, descent$depth)$y)
+test <- data.frame(depth = approx(bin3df$depth, bin3df$cdom, descent$depth)$x, 
+                   cdom = approx(bin3df$depth, bin3df$cdom, descent$depth)$y)
 
-descent2 <- descent
 
-descent2$virtualcdom <- test$cdom
+descent$virtualcdom <- test$cdom
 
-calibrange <- descent2[which(descent2$depth == TopDepth):which(descent2$depth == MaxDepth),]
+calibrange <- descent[which(descent$depth == TopDepth):which(descent$depth == MaxDepth),]
 
-linearMod <- lm(fluo ~ virtualcdom, data = calibrange)
+linearMod <- lm(chla ~ cdom_virtual, data = calibrange)
 slope_fdom <- coef(linearMod)[[2]]
 C <- coef(linearMod)[[1]]
 
 fluo_cor <- descent2$fluo - (slope_fdom*descent2$virtualcdom) - C
-descent2$fluo_cor <- fluo_cor
+descent$fluo_cor <- fluo_cor
 
-ggplot(descent2, aes(x = fluo, y = depth)) + geom_point() + scale_y_reverse() + 
-  geom_point(data = descent2, aes(x = fluo_cor, y = depth), colour = "red") +
-  geom_vline(xintercept = 0, lty = "dashed")
-
-ggplot(descent2, aes(x = fluo, y = depth)) + geom_path() + scale_y_reverse() + 
-  geom_path(data = descent2, aes(x = fluo_cor, y = depth), colour = "blue") +
-  geom_vline(xintercept = 0, lty = "dashed") + 
-  geom_point(data=hplc, aes(y = depth_hplc, x = chla_hplc),
-             colour = "red", size = 2, shape = 15) + 
-  geom_path(data = descent2, aes(x = chla_cor1, y = depth), colour = "green") 
+# ggplot(descent2, aes(x = fluo, y = depth)) + geom_point() + scale_y_reverse() + 
+#   geom_point(data = descent2, aes(x = fluo_cor, y = depth), colour = "red") +
+#   geom_vline(xintercept = 0, lty = "dashed")
+# 
+# ggplot(descent2, aes(x = fluo, y = depth)) + geom_path() + scale_y_reverse() + 
+#   geom_path(data = descent2, aes(x = fluo_cor, y = depth), colour = "blue") +
+#   geom_vline(xintercept = 0, lty = "dashed") + 
+#   geom_point(data=hplc, aes(y = depth_hplc, x = chla_hplc),
+#              colour = "red", size = 2, shape = 15) + 
+#   geom_path(data = descent2, aes(x = chla_cor1, y = depth), colour = "green") 
 
 ######
 
@@ -901,7 +734,7 @@ exp <- data.frame(depth = approx(exp$depth, exp$cdom, obs$depth)$x,
 
 rownames(descent2) <- NULL
 MaxDepth <- max(descent2$depth)#Max depth of the profile
-TopDepth <- descent2$depth[which.min(descent2$fluo)]
+TopDepth <- descent2$depth[which.min(descent2$chla)]
 
 exp$fluo <- descent2$fluo
 
@@ -911,19 +744,19 @@ corrupt <- rbinom(length(exp$cdom),1,1)    # choose an average of 100% to corrup
 corrupt <- as.logical(corrupt)
 noise <- rnorm(sum(corrupt),exp$cdom[corrupt],pc) # generate the noise to add
 exp$noisy_cdom <- noise 
-exp$noisy_cdom <- noise + (0.05/1*exp$depth)*exp(0.004*(exp$depth+100))
-exp$noisy_cdom <- noise - (0.05/1*exp$depth)*exp(0.004*(exp$depth+5000))
-exp$noisy_cdom <- noise + (0.05/1*exp$depth)*sin(0.04*exp$depth)
-exp$noisy_cdom <- noise - (0.05/1*exp$depth)*sin(0.04*exp$depth)
-exp$noisy_cdom <- noise + exp(-0.04*sin(exp$depth))
-exp$noisy_cdom <- noise[1] - 0.008714*exp$depth
-
+# exp$noisy_cdom <- noise + (0.05/1*exp$depth)*exp(0.004*(exp$depth+100))
+# exp$noisy_cdom <- noise - (0.05/1*exp$depth)*exp(0.004*(exp$depth+5000))
+# exp$noisy_cdom <- noise + (0.05/1*exp$depth)*sin(0.04*exp$depth)
+# exp$noisy_cdom <- noise - (0.05/1*exp$depth)*sin(0.04*exp$depth)
+# exp$noisy_cdom <- noise + exp(-0.04*sin(exp$depth))
+# exp$noisy_cdom <- noise[1] - 0.008714*exp$depth
 
 ggplot(exp, aes(x = cdom, y = depth)) + geom_path(colour = "red") + 
   scale_y_reverse() + geom_path(data = obs, aes(x = cdom, y = depth),
                                 colour = "black") + 
   geom_path(data = exp, aes(x = noisy_cdom, y = depth), colour = "blue") +
-  geom_path(data = exp, aes(x = fluo, y = depth), colour = "green")
+  #geom_path(data = exp, aes(x = fluo, y = depth), colour = "green")
+  xlab("CDOM (ppb)") + ylab("Depth (m)") + theme(text=element_text(size=16)) 
 
 #XING 2017
 calibrange <- exp[which(exp$depth == TopDepth):which(exp$depth == MaxDepth),]
@@ -938,13 +771,23 @@ ggplot(exp, aes(x = fluo_cor, y =depth)) + geom_path(colour="red") +
   scale_y_reverse() + 
   geom_path(data = exp, aes(x = fluo, y = depth), colour = "black") + 
   geom_path(data = obs, aes(x = fluo, y = depth), colour = "blue") + 
-  geom_vline(xintercept = 0)
+  geom_vline(xintercept = 0, lty = "dashed") +
+  xlab(expression(Chlorophyll~a~(mg/m^3)))+ ylab("Depth (m)") + 
+  theme(text=element_text(size=16)) 
 
-error_out = data.frame(depth = obs$depth, error = abs((obs$fluo-exp$fluo_cor)/obs$fluo)*100)
-rmse = sqrt(sum((obs$fluo - exp$fluo_cor)^2)/length(obs$fluo))
+#error_out = data.frame(depth = obs$depth, error = abs((obs$fluo-exp$fluo_cor)/obs$fluo)*100)
+topindex <- which(exp$depth == TopDepth)
+rmse = sqrt(sum((obs$fluo[1:topindex] - exp$fluo_cor[1:topindex])^2)/length(obs$fluo[1:topindex]))
 
 #SCATTER PLOT
 topindex <- which(exp$depth == TopDepth)
 botindex <- which(exp$depth == MaxDepth)
 scatterplot(exp$noisy_cdom[topindex:botindex],exp$fluo[topindex:botindex])
+#scatterplot(exp$fluo[topindex:botindex],exp$noisy_cdom[topindex:botindex])
+exp2 <- exp[topindex:botindex,]
+ggplot(exp2, aes(x = noisy_cdom, y = fluo, colour = depth)) + geom_point() +
+  geom_smooth(method='lm', colour = "black") +
+  xlab("Virtual CDOM (ppb)") + ylab(expression(Chlorophyll~a~(mg/m^3))) +
+  theme(text=element_text(size=12)) + scale_color_continuous(name = "Depth (m)") +
+  ylim(c(0.108, 0.176))
 
