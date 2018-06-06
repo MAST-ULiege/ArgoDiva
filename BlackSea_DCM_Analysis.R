@@ -1511,6 +1511,7 @@ grid.arrange(a,b, ncol = 1, nrow = 2)
 
 ######### DCM avec la PAR (LETELIER 2004)
 
+#TAKE PAR PROFILES THEN CLEAN IT THEN TAKE THE PAR AT INTERPOLATED CHLA VALUES
 PARanalysis <-ldply(as.list(PAR_files),function(file){
   
   #Opening the file in a open-only mode
@@ -1538,97 +1539,70 @@ PARanalysis <-ldply(as.list(PAR_files),function(file){
   
   show(file)
   
-  chladf <- ExtractVar("CHLA", FloatInfo)
-  chladf <- chladf[-(which(chladf$qc == 4)),]
   pardf <- ExtractVar("DOWNWELLING_PAR", FloatInfo)
-  tempdf <- ExtractVar("TEMP",FloatInfo)
-  psaldf <- ExtractVar("PSAL",FloatInfo)
-  
-  chladf <- var_average(chladf)
-  pardf <- var_average(pardf)
-  tempdf <- var_average(tempdf)
-  tempdf$value[which(tempdf$qc == 4 | tempdf$qc == 3)] <- NA
-  psaldf <- var_average(psaldf)
-  psaldf$value[which(psaldf$qc == 4 | psaldf$qc == 3)] <- NA
-  pardf <- match_df(pardf, chladf, on = c("juld","depth"))
-  chladf <- match_df(chladf, pardf, on = c("juld","depth"))
-  tempdf <- match_df(tempdf, chladf, on = c("juld","depth"))
-  psaldf <- match_df(psaldf, pardf, on = c("juld","depth"))
-  chladf <- match_df(chladf, psaldf, on = c("juld","depth"))
-  pardf <- match_df(pardf, psaldf, on = c("juld","depth"))
-  
-  psal <- gsw_SA_from_SP(psaldf$value,psaldf$depth,psaldf$lon,psaldf$lat)
-  temp <- gsw_CT_from_t(psal,tempdf$value,psaldf$depth)
-  sigma <- gsw_sigma0(psal,temp)
   
   #Construction du data frame final a lieu ici
-  data.frame(depth         = chladf$depth,
-             juld          = chladf$juld,
-             fluo          = chladf$value,
+  data.frame(depth         = pardf$depth,
+             juld          = pardf$juld,
              par           = pardf$value,
-             sigma         = sigma,
-             day           = month.day.year(chladf$juld,c(1,1,1950))$day,
-             month         = month.day.year(chladf$juld,c(1,1,1950))$month,
-             year          = month.day.year(chladf$juld,c(1,1,1950))$year,
-             DOY           = as.integer(strftime(as.Date(chladf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
-             lon           = chladf$lon,
-             lat           = chladf$lat,
+             day           = month.day.year(pardf$juld,c(1,1,1950))$day,
+             month         = month.day.year(pardf$juld,c(1,1,1950))$month,
+             year          = month.day.year(pardf$juld,c(1,1,1950))$year,
+             DOY           = as.integer(strftime(as.Date(pardf$juld,origin = '1950-01-01'), format ="%j")),#Day Of Year
+             lon           = pardf$lon,
+             lat           = pardf$lat,
              Platform      = as.numeric(unique(id)),
              type          = "Argo")
 })
 
+#remove profiles without DCM
+'%!in%' <- function(x,y)!('%in%'(x,y))
+PARanalysis <- PARanalysis[!(PARanalysis$juld %!in% TOTAL2$juld),]
+PARanalysis <- PARanalysis[!(PARanalysis$par < 0),]
 PARanalysis <- transform(PARanalysis,id=as.numeric(factor(juld)))
 
-tmp <- PARanalysis[PARanalysis$id == i,]
-ggplot(tmp, aes(x = fluo, y = par)) + 
-  geom_path() + ggtitle(i)
-i <- i + 1 
+#check visu
+# tmp <- PARanalysis[PARanalysis$id == i,]
+# ggplot(tmp, aes(x = par, y = -depth)) + geom_path() + ylim(c(-100,0))
+# i <- i + 1
 
-parreject <- c(9,10,12,16,26,44,47,55,72,83,101,45,43,42,40,39,37,35,33,32,48,61,85,
-               208,206,192,152,148,141,126,123,110,116,137)
-
+parreject <- c(47,48,81,137)
 PARanalysis <- PARanalysis[!(PARanalysis$id %in% parreject),]
+rownames(PARanalysis) <- NULL
+PARanalysis <- transform(PARanalysis,id=as.numeric(factor(juld)))
 
-tmp <- PARanalysis[PARanalysis$year == 2017,]
-tmp <- PARanalysis
-tmp <- tmp[-(which(is.na(tmp$sigma)==TRUE)),]
-rownames(tmp) <- NULL
-tmp <- transform(tmp,id=as.numeric(factor(juld)))
+smoothed_par <- ldply(as.list(unique(PARanalysis$id)), function(i){
+  tmp <- PARanalysis[PARanalysis$id == i,]
+  tmp <- mmed(tmp$par, 5)
+  data.frame(smoothed_par = tmp)
+})
 
-df <- ddply(tmp, ~juld, summarize,
-            bottom = max(depth, na.rm =T),
-            min = min(depth, na.rm = T),
-            sigmamax = sigma[which.max(fluo)],
-            par = par[which.max(fluo)],
-            maxfluo = max(fluo))
+PARanalysis[,3] <- smoothed_par
 
-df <- df[-(which(df$bottom < 100)),]
-df <- df[-(which(df$bottom == df$min)),]
-df <- df[-(which(df$min > 10)),]
+PARDCM <- ldply(as.list(1:length(unique(PARanalysis$juld))), function(i){
+  tmp <- PARanalysis[PARanalysis$id == i,]
+  juld <- tmp$juld[1]
+  index <- which(TOTAL2$juld == juld)
+  depthdcm <- TOTAL2$Zmax[index]
+  pardcminterp <- approx(tmp$depth, tmp$par, depthdcm)$y
+  data.frame(pardcm = pardcminterp, month = tmp$month[1],
+             platform = tmp$Platform[1], juld = juld)
+})
 
-tmp <- tmp[tmp$juld %in% df$juld,]
+PARDCM <- ddply(PARDCM,~month, transform, Season=1*(month %in% c(12,1,2)) +
+                       2*(month %in% c(3,4,5 )) +
+                       3*(month %in% c(6,7,8 )) +
+                       4*(month %in% c(9,10,11 )))
 
-range2017 <- range(info2017$mean)
+#interpolation light on DCM depth due to data scarcity
 
-ggplot(tmp, aes(x = fluo, y = par)) +
-  geom_point(size = 1) + geom_point(data = df, aes(x = maxfluo, y = par), color = "red", size = 1) +
-  xlab(expression(Chlorophyll~a~(mg/m^3))) + #ylab("PAR (microMoleQuanta/m²/sec)")
-  #ylab(expression(mu),expression(mol~quanta~(m^-2~s^-1))) +  
+ggplot(PARDCM, aes(factor(month), pardcm, colour=factor(Season))) + geom_boxplot() +
   theme(text=element_text(size=12)) +
   ylab (expression(paste(
     "PAR (",
     mu, mol," ","quanta ",m^-2, s^-1,
-    ")", sep="")))
-
-ggplot(tmp, aes(x = fluo, y = par)) +
-  geom_point(size = 1) + geom_point(data = df, aes(x = maxfluo, y = par), color = "red", size = 1) +
-  xlab(expression(Chlorophyll~a~(mg/m^3))) + #ylab("PAR (microMoleQuanta/m²/sec)")
-  #ylab(expression(mu),expression(mol~quanta~(m^-2~s^-1))) +  
-  theme(text=element_text(size=12)) +
-  ylab (expression(paste(
-    "PAR (",
-    mu, mol," ","quanta ",m^-2, s^-1,
-    ")", sep=""))) + ylim(c(0,300)) + geom_hline(yintercept = 5.787, lty = "dashed") + xlim(c(0,2.5))
+    ")", sep="")))  + geom_hline(yintercept = 5.787, lty = "dashed") + xlab("Month") +
+  theme(legend.title=element_blank()) + theme(legend.position = "none")
 
 #PRE-DIVA
 #get MOD DCM 
