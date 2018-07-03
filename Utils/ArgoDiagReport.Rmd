@@ -1,0 +1,60 @@
+---
+output:
+  pdf_document:
+    toc : true
+params:
+  fdf : NA
+  selectCriterium : NA
+  flist : "BAH"
+  authorname : "A. Capet"
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage[table]{xcolor}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+---
+
+---
+title: `r paste0("Diagnostics Report Report for ", flist)`
+author: `r params$authorname`
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+options(knitr.table.format = "latex")
+library(kableExtra)
+library(ggplot2)
+```
+
+# Monthly Histograms
+
+
+
+```{r MonthlyHist, echo=FALSE}
+ggplot(fdf,aes(x=value))+
+  geom_histogram()+
+facet_grid(month~variable)
+```
+
+
+```{r Multivariate, include=FALSE}
+
+```
+
+
+
+
+
+
+
+
+
