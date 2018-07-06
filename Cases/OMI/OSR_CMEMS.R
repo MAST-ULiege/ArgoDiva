@@ -2,13 +2,14 @@
 # A. Capet 02/07/2018 - acapet@uliege.be
 
 # Load package and function sources
-source("ArgoLoad.R")
+source("../../Utils/ArgoLoad.R")
 
 ################################
 # Criterium for Argo selection #
 ################################
 
-dataDir   = "/home/arthur/Desktop/PAPERS_UNDER_WORK/OSR3/datas/CMEMS/"
+dataDir   = paste0(basedir,'/Datas/CMEMS/')
+
 selectCriterium0<-list(
   dataDir   = dataDir,
   ## List of individual Argo netcdf files. 
@@ -20,13 +21,11 @@ selectCriterium0<-list(
   # This flag states wether we retain only records for which all variables are presents
   presentInAll = TRUE
 )
+
+# Overwrites default ArgoSelect function
 source("ArgoSelect_CMEMS.R")
-fulldf0 <- ArgoSelect_CMEMS(selectCriterium0, datasource = "CMEMS")
-head(fulldf0)
 
-fuldf<-rbind(fulldf0)
-#fuldf<-rbind(fulldf0,fulldf1,fulldf2)
-
+fuldf <- ArgoSelect_CMEMS(selectCriterium0, datasource = "CMEMS")
 
 fuldf$variable[which(fuldf$variable=="DOX2")]<-"DOXY"
 
@@ -34,11 +33,8 @@ fuldf$variable[which(fuldf$variable=="DOX2")]<-"DOXY"
 # Function definitions #
 ########################
 
-# To know about defined function you could use , look at :
-source("ArgoVertFunctions.R")
-
-# To add new function, use :  (using same structure as in the previous file)
-source("ArgoVertFunctions_USER.R")
+# To add new function, use :  
+source("ArgoVertFunctions_OMI.R")
 
 ########################
 # Complete (by level)  #
@@ -52,7 +48,7 @@ ddin <- subset(ddi,!is.na(DOXY))
 ddim <- melt(ddin,id.vars = c("qc","depth","juld","lon","lat","Platform","day","month","year"))
 
 flistl <- list("InSituDens")
-source("ArgoCompleteBIS.R")
+source("../../Utils/ArgoCompleteBIS.R")
 fdf   <- ArgoCompleteBIS(ddim, flistl)
 
 ddi<-dcast(fdf,qc+depth+juld+lon+lat+Platform+day+month+year~variable,fun.aggregate = mean, na.rm=T)
@@ -60,7 +56,7 @@ ddin<-subset(ddi,!is.na(DOXY) & !is.na(RHO))
 ddim<-melt(ddin,id.vars = c("qc","depth","juld","lon","lat","Platform","day","month","year"))
 
 flist   <- list("Z20","R20","VOC","CCC")
-source("ArgoExtractForCastedDF.R")
+source("../../Utils/ArgoExtractForCastedDF.R")
 finaldf <- ArgoExtractForCastDF(ddin, flist )
 
 varsdf<-rbind(
@@ -71,10 +67,20 @@ varsdf<-rbind(
 
 finaldffrop<-dcast(finaldf,qc+juld+lon+lat+Platform+day+month+year~variable, fun.aggregate = mean, na.rm=TRUE)
 
+######################
+# OMI netcdf ouptuts #
+######################
 
-##########
-# PLOTS
-##########
+save(finaldffrop,file = 'Lastfinaldrop.Rata')
+source("NetcdfOutput_OMI_MultiPlatform.R")
+
+NetcdfOutput_OMI_MP(finaldffrop, 'Z20')
+NetcdfOutput_OMI_MP(finaldffrop, 'R20')
+NetcdfOutput_OMI_MP(finaldffrop, 'VOC')
+
+#########
+# PLOTS #
+#########
 finaldffrop<-subset(finaldffrop,year>=2011)
 
 vavar<-"Z20"

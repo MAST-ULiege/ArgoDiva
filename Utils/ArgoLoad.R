@@ -5,8 +5,11 @@ library(plyr)
 library(reshape2)
 library(chron)
 
-source("ArgoSelect.R")
-source("ArgoExtract.R")
-source("ArgoDisplay.R")
-source("ArgoPrepareforDiva.R")
+basedir <- '/home/arthur/Desktop/DOCS/TEACHING/Florient/ArgoDiva'
+
+
+source(paste0(basedir,'/',"Utils/ArgoSelect.R"))
+source(paste0(basedir,'/',"Utils/ArgoExtract.R"))
+source(paste0(basedir,'/',"Utils/ArgoDisplay.R"))
+source(paste0(basedir,'/',"Utils/ArgoPrepareforDiva.R"))
 
