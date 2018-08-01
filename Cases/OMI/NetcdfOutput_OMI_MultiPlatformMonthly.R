@@ -1,4 +1,5 @@
 NetcdfOutput_OMI_MP <- function(df,varname){
+  library(lubridate)
   
   # -- Path here to save the netcdf file
   path <- paste0('./Output_',Sys.Date())
@@ -11,16 +12,11 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   other_info      <- varname          # ohc case ...
   
   # -- TIME info
-#  TIMEdf <- data.frame(origin   = as.Date('1950-01-01 00:00:00'),
-#                       calendar = 'gregorian',
-#                       units    = 'days since 1950-01-01 00:00:00',
-#                       name     = 'time')
-  
   TIMEdf <- list(origin   = as.Date('1950-01-01 00:00:00'),
                        calendar = 'gregorian',
                        units    = 'days since 1950-01-01 00:00:00',
                        name     = 'time')
-
+  
   # -- VAR infos
   VOCdf   <- list(long_name     = "Oxygen Content",
                        units         = 'mol/m^2',
@@ -62,49 +58,84 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   ### ### ### ### #### 
   # Data Preparation #
   ### ### ### ### #### 
-
+  
   df$juld <- round(df$juld)
   df      <- subset(df,select = c("juld","lon","lat","Platform",varname))
   colnames(df)[which(colnames(df)==varname)]<-"value"
   
-  timevals <- seq(min(df$juld),max(df$juld))
+  timevals_daily <- seq(min(df$juld),max(df$juld))
+  
+  # Generation of time index for the monthly averages
+  firstday     <- as.Date(min(df$juld)+30.25, origin = TIMEdf$origin)
+  lastday      <- as.Date(max(df$juld)-30.25, origin = TIMEdf$origin)
+
+  timevals   <- numeric()
+  timebounds <- numeric()
+  cnt <- 1
+  for (yl in year(firstday):year(lastday)){
+    if (yl == year(firstday)) fmonth <- month(firstday) else fmonth <- 1  
+    if (yl == year(lastday))  lmonth <- month(lastday)  else lmonth <- 12 
+    for (fl in fmonth:lmonth){
+      timevals[cnt] <- difftime( dmy(paste0("15 ",fl," ",yl)), TIMEdf$origin, units = "days")
+      timebounds[cnt] <- difftime( dmy(paste0("01 ",fl," ",yl)), TIMEdf$origin, units = "days")
+      cnt <- cnt+1
+    }
+  }
+  timebounds[cnt] <- difftime( dmy(paste0("01 ",month(lastday)+1," ",year(lastday))), TIMEdf$origin, units = "days")
 
   # -- Create platform list
   Platformlist <- unique(subset(df, !is.nan(value),select='Platform'))
   
   longdf <- data.frame(time = timevals, 
+                       time_bds_low = timebounds[1:(length(timebounds)-1)],
+                       time_bds_up  = timebounds[2:length(timebounds)],
                        mean = NA,
                        stde = NA)
   
   for (p in Platformlist$Platform) {
     print(p)
     platdf <- subset(df,Platform==p)
-    longdf[match(platdf$juld ,longdf$time), p ] <- platdf$value
+    for (tl in 1:length(longdf$time)){
+      longdf[tl,p] <- mean( subset(platdf, juld >= longdf$time_bds_low[tl] &
+                                        juld < longdf$time_bds_up[tl])$value , na.rm = TRUE) 
+    }
+  }
+  
+  longdf_daily <- data.frame(time = timevals_daily, 
+                       mean = NA,
+                       stde = NA)
+  
+   for (p in Platformlist$Platform) {
+    print(p)
+    platdf <- subset(df,Platform==p)
+    longdf_daily[match(platdf$juld ,longdf_daily$time), p ] <- platdf$value
   }
 
-  timespan <- 90 # days for a smoothed average and std error estimates  
   ##########################################
   # !!! Different option for stde definition !!! 
   # Pick your choice and comment the rest
   ##########################################
   # 1. simplest standard error on Mean estimate. -> problem due to sd estimation from very few floats (eg. 1)
-  errorfromneighb1 <- function(neihgbdf) {
-      sd( neihgbdf$value,na.rm = TRUE) / sqrt(sum(!is.na(neihgbdf$value) ))
-  }
+  # errorfromneighb <- function(neihgbdf) {
+  # 1.96 * sd( neihgbdf$value,na.rm = TRUE) / sqrt(sum(!is.na(neihgbdf$value) ))
+  # }
   
   # 2. Second option, the standard deviation used for standard error on mean estimate is estimated from the global datasets (not only the local one)
   fullsd <- sd( df$value,na.rm = TRUE)
-  errorfromneighb2 <- function(neihgbdf) {
-  fullsd  / sqrt(sum(!is.na(neihgbdf$value) ))
+  errorfromneighb <- function(neihgbdf) {
+  1.96 * fullsd  / sqrt(sum(!is.na(neihgbdf$value) ))
   }
   
-  for (d in longdf$time){
-    if ( (d-min(longdf$time))<timespan/2 | (max(longdf$time)-d< timespan/2) ){longdf[which(longdf$time ==d), c('mean','stde')]<-NA}
-    else{
-    neihgbdf  <-  subset(df, abs(juld-d)<timespan/2)
-    longdf[which(longdf$time ==d),'mean'] <- mean( neihgbdf$value,na.rm = TRUE)
-    longdf[which(longdf$time ==d),'stde'] <- errorfromneighb2(neihgbdf)
-      }
+  # 3. standard deviation
+   # errorfromneighb <- function(neihgbdf) {
+   #     sd( neihgbdf$value,na.rm = TRUE) 
+   # }
+  ##########################################
+  
+  for (tl in 1:length(longdf$time)){
+    neihgbdf  <-  subset(df, juld >= longdf$time_bds_low[tl] & juld < longdf$time_bds_up[tl] )
+    longdf[tl,'mean'] <- mean( neihgbdf$value,na.rm = TRUE)
+    longdf[tl,'stde'] <- errorfromneighb(neihgbdf)
   }
 
   ##########
@@ -112,7 +143,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   ##########
   source("OMI_figure.R")
   figname <- paste0(area,'_omi_',short_omi_name,'_area_averaged_',vardf$ncname,'_',first_occurence,'_',prod_time,'.pdf')
-  OMI_figure(longdf, TIMEdf, vardf, figname)
+  OMI_figure(longdf, TIMEdf, vardf, figname, addfloat=TRUE, longdf_daily = longdf_daily)
   
   ###############
   # NC Creation #
@@ -177,8 +208,8 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   }
   ncvar_put(ncout,paste0(vardf$name,'_','std'), replace( longdf[,'stde'] , (is.na(longdf[,'stde']) |  is.nan(longdf[,'stde'])|is.infinite(longdf[,'stde'])) ,vardf$FillValue))
   ncvar_put(ncout,paste0(vardf$name,'_','mean'), longdf[,'mean'])
-  ncvar_put(ncout,"time_bnds", matrix( data = c(timevals-timespan/2 , timevals+timespan/2), nrow = 2, byrow = TRUE) )
-
+  ncvar_put(ncout,"time_bnds", matrix( data = c(timebounds[1:(length(timebounds)-1)],
+                                                timebounds[2:(length(timebounds))  ]), nrow = 2, byrow = TRUE) )
   #############
   # ATRIBUTES #
   #############
@@ -194,10 +225,10 @@ NetcdfOutput_OMI_MP <- function(df,varname){
     for (p in Platformlist$Platform) {  
       ncatt_put(ncout,paste0(vardf$name,'_',p), "comment"      , paste0( vardf$comment, ' as measured from ARGO ', p))
     }
-    ncatt_put(ncout,paste0(vardf$name,'_','mean'), "comment"      , paste0( vardf$comment, ' ',timespan, ' days window average'))
+    ncatt_put(ncout,paste0(vardf$name,'_','mean'), "comment"      , paste0( vardf$comment, ' monthly average'))
     ncatt_put(ncout,paste0(vardf$name,'_','mean'), "cell_methods","time: mean")
     ncatt_put(ncout,paste0(vardf$name,'_','mean'), "ancillary_variables" , paste0( vardf$name,'_','std'))
-    ncatt_put(ncout,paste0(vardf$name,'_','std'), "comment"       , paste0( vardf$comment, ' ',timespan, ' days window standard error'))
+    ncatt_put(ncout,paste0(vardf$name,'_','std'), "comment"       , paste0( vardf$comment, ' monthly average standard error'))
     ncatt_put(ncout,paste0(vardf$name,'_','std'), "standard_name" , paste0( vardf$name,'_','mean',' standard_error'   ))
     
 #  Global Attributes
@@ -224,21 +255,19 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   # # # # # # # # # # # 
   # Data Preparation  #
   # # # # # # # # # # # 
-  
-  dateorigin <- as.Date("1/1/1950", "%d/%m/%Y")
   firstyear <- 1955
-  lastyear <- 2017
+  lastyear <- 2019
   
   yearMJD <- data.frame(year= seq(firstyear,lastyear))
   
   for (yearsi in (1:(lastyear-firstyear+1))){
     yearss <-yearMJD$year[yearsi]
     firstday  <- as.Date(paste0("01/01/", as.character(yearss)), "%d/%m/%Y") 
-    yearMJD$beg[yearsi]  <- as.numeric(difftime(firstday, dateorigin, units = "days"))
+    yearMJD$beg[yearsi]  <- as.numeric(difftime(firstday, TIMEdf$origin, units = "days"))
     midday  <- as.Date(paste0("01/06/", as.character(yearss)), "%d/%m/%Y") 
-    yearMJD$mid[yearsi]  <- as.numeric(difftime(midday, dateorigin, units = "days"))
+    yearMJD$mid[yearsi]  <- as.numeric(difftime(midday, TIMEdf$origin, units = "days"))
     endDate  <- as.Date(paste0("31/12/", as.character(yearss)), "%d/%m/%Y") 
-    yearMJD$end[yearsi]  <- as.numeric(difftime(endDate, dateorigin, units = "days"))
+    yearMJD$end[yearsi]  <- as.numeric(difftime(endDate, TIMEdf$origin, units = "days"))
   }
   
   # LOAD INTERANNUAL TREND
@@ -279,17 +308,18 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   trendfsub <-  subset(trendf,Nprofs>Nprofmin&Year>yearmin&VAR==varname&Year<yearmax)
   
   longdfannual <- data.frame(year        = yearMJD$year, 
-                             time        = yearMJD$mid, 
-                             beg         = yearMJD$beg,
-                             end         = yearMJD$end,
-                             Ship_casts  = NA,
-                             Ship_casts_error = NA, 
-                             Argos       = NA,
-                             Argos_error = NA,
-                             mean        = NA,
-                             stde        = NA)
+                             time        = yearMJD$mid , 
+                             beg         = yearMJD$beg ,
+                             end         = yearMJD$end ,
+                             Ship_casts       = NA     ,
+                             Ship_casts_error = NA     , 
+                             Argos            = NA     ,
+                             Argos_error      = NA     ,
+                             mean             = NA     ,
+                             stde             = NA      )
   
   longdfannual[match(trendfsub$Year ,yearMJD$year), "Ship_casts" ] <- trendfsub$Trend
+  longdfannual[match(trendfsub$Year ,yearMJD$year), "Ship_casts_error" ] <- 1.96*sd(trendfsub$Trend)/sqrt(trendfsub$Nprofs)
   
   timespan<-365
   
@@ -299,11 +329,13 @@ NetcdfOutput_OMI_MP <- function(df,varname){
       } else{
       neihgbdf  <-  subset(df, abs(juld-d)<timespan/2)
       longdfannual[which(longdfannual$time ==d),'Argos']       <- mean( neihgbdf$value,na.rm = TRUE)
-      longdfannual[which(longdfannual$time ==d),'Argos_error'] <- errorfromneighb1(neihgbdf)
+      longdfannual[which(longdfannual$time ==d),'Argos_error'] <- errorfromneighb(neihgbdf)
     }
   }
   
-  longdfannual <- ddply(longdfannual,.(year), mutate,mean=mean(c(Argos,Ship_casts), na.rm=TRUE))
+  longdfannual <- ddply(longdfannual,.(year), mutate,
+                        mean = mean(c(Argos,Ship_casts), na.rm=TRUE), 
+                        stde = max (c(Argos_error,Ship_casts_error), na.rm=TRUE )  )
   
   # # # # # # # #
   # NC Creation #

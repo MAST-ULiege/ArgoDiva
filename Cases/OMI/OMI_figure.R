@@ -1,4 +1,4 @@
-OMI_figure <- function (longdf, TIMEdf, vardf, filename){
+OMI_figure <- function (longdf, TIMEdf, vardf, filename, addfloat = FALSE, longdf_daily=NULL ){
   library(scales)
   
   
@@ -15,9 +15,9 @@ trend_display <- function(df){
   
   
 Gplot <-
-  ggplot(longdf,aes(x=as.Date(time,origin=TIMEdf$origin),y=mean,ymin=mean-1.96*stde,ymax=mean+1.96*stde))+
+  ggplot(longdf,aes(x=as.Date(time,origin=TIMEdf$origin),y=mean))+
   geom_line(color="blue")+
-  geom_ribbon(alpha=0.2, fill='blue')+
+  geom_ribbon(aes(ymin=mean-1.96*stde,ymax=mean+1.96*stde),alpha=0.2, fill='blue')+
   ylim(c(vardf$minsc,vardf$maxsc))+
   xlab('Year')+
   ylab(paste0('[',vardf$units,']'))+
@@ -28,6 +28,13 @@ Gplot <-
   geom_text(x = as.Date(longdf$time[2000],origin=TIMEdf$origin),
             y = vardf$maxsc,
             label = trend_display(longdf), parse = TRUE)
+
+if (addfloat) {
+  Gplot <- Gplot + geom_point(data= melt(longdf_daily[,-which(colnames(longdf_daily) %in% c("mean","stde"))],id.vars = "time"),
+                              aes(x=as.Date(time,origin=TIMEdf$origin), y = value, color=variable), 
+                              alpha = 0.5)
+}
+
 
 print(Gplot)
 
