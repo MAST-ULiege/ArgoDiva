@@ -6,7 +6,7 @@ source("../../Utils/ArgoLoad.R")
 # Overwrites default ArgoSelect function
 source("ArgoSelect_CMEMS.R")
 
-datacase <- "CORIOLIS" #"CMEMS_HISTORY" #  "CMEMS_MONTHLY" #
+datacase <- "CMEMS_MONTHLY" #"CORIOLIS" #"CMEMS_HISTORY" #  
 
 ################################
 # Criterium for Argo selection #
@@ -381,7 +381,6 @@ blackseamap <- get_map(location = c(27.5,41,42,47),source="google",color = "bw")
       ylab(paste (varsdf[vavar,"YLAB"],"-","[",varsdf[vavar,"Unit"],"]"))+
       scale_x_continuous(breaks=seq(from=1960,to=2020,by=10))
   })
-  
   
   legend<-g_legend(plist[[1]])
   

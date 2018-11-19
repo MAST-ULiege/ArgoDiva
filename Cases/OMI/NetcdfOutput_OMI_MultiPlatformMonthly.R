@@ -5,9 +5,8 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   path <- paste0('./Output_',Sys.Date())
   
   # -- OMI file name : let's build the standard name of your future file
-  area            <- 'bs'             # or med or nws, ...
-  short_omi_name  <- 'oc'             # 
-  first_occurence <- '20110101'       # yyyymmdd
+  area            <- 'blksea'             # or med or nws, ...
+  short_omi_name  <- 'o2'             # 
   prod_time       <- paste0('P',gsub("-",'',as.character(Sys.Date())))      # P + yourdate yyyymmdd
   other_info      <- varname          # ohc case ...
   
@@ -18,10 +17,10 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                        name     = 'time')
   
   # -- VAR infos
-  VOCdf   <- list(long_name     = "Oxygen Content",
+  VOCdf   <- list(long_name     = "Oxygen Inventory",
                        units         = 'mol/m^2',
-                       name          = 'oxygen_content',
-                       standard_name = 'oxygen_content',
+                       name          = 'oxygen_inventory',
+                       standard_name = 'oxygen_inventory',
                        FillValue     = -9999.0,
                        Comment       = 'Vertically integrated oxygen concentration',
                        minsc         = 0, 
@@ -31,24 +30,24 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   
   Z20df   <- list(long_name     = "Oxygen Penetration Depth",
                        units         = 'm',
-                       name          = 'oxycline_depth',
-                       standard_name = 'oxycline_depth',
+                       name          = '20uM_O2_depth',
+                       standard_name = '20uM_O2_depth',
                        FillValue     = -9999.0,
                        Comment       = 'Depth at which [O2]<20µM', 
                        minsc         = 170, 
                        maxsc         = 0,
-                       ncname        = 'oxygen_penetration_depth')
+                       ncname        = '20uM_O2_depth')
   #rownames(Z20df)<-"Z20"
   
   R20df   <- list(long_name     = "Oxygen Penetration Density",
-                        units         = 'kg/m3',
-                        name          = 'oxycline_density',
-                        standard_name = 'oxycline_density',
+                        units         = 'kg/m^3',
+                        name          = '20uM_O2_density',
+                        standard_name = '20uM_O2_density',
                         FillValue     = -9999.0,
                         Comment       = 'Potential density anomaly at which [O2]<20µM',
                         minsc         = 16.5, 
                         maxsc         = 14.5,
-                        ncname        = 'oxygen_penetration_density')
+                        ncname        = '20uM_O2_density')
   
   
   allvardf <- list(VOC=VOCdf,Z20=Z20df,R20=R20df)
@@ -112,7 +111,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   }
 
   ##########################################
-  # !!! Different option for stde definition !!! 
+  # !!! Different option for STDE definition !!! 
   # Pick your choice and comment the rest
   ##########################################
   # 1. simplest standard error on Mean estimate. -> problem due to sd estimation from very few floats (eg. 1)
@@ -123,9 +122,19 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   # 2. Second option, the standard deviation used for standard error on mean estimate is estimated from the global datasets (not only the local one)
   fullsd <- sd( df$value,na.rm = TRUE)
   errorfromneighb <- function(neihgbdf) {
-  1.96 * fullsd  / sqrt(sum(!is.na(neihgbdf$value) ))
+    if (sum(!is.na(neihgbdf$value) )>0  ) {
+      1.96 * fullsd  / sqrt(sum(!is.na(neihgbdf$value) ))
+    }else{
+      NA
+    }
+    # Here we use the number of profiles
   }
   
+  # 2. Second option, the standard deviation used for standard error on mean estimate is estimated from the global datasets (not only the local one)
+  fullsd <- sd( df$value,na.rm = TRUE)
+  errorfromneighbNUMBEROFPLATFORM <- function(neihgbdf) {
+    1.96 * fullsd  / sqrt(length(unique(subset(neihgbdf, !is.na(value), select=Platform))))  # Here we use the number of profiles
+  }
   # 3. standard deviation
    # errorfromneighb <- function(neihgbdf) {
    #     sd( neihgbdf$value,na.rm = TRUE) 
@@ -142,19 +151,24 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   # Figure #
   ##########
   source("OMI_figure.R")
-  figname <- paste0(area,'_omi_',short_omi_name,'_area_averaged_',vardf$ncname,'_',first_occurence,'_',prod_time,'.pdf')
+  figname <- paste0(area,'_omi_',short_omi_name,'_trend_',vardf$ncname,'_monthly_',prod_time,'.pdf')
   OMI_figure(longdf, TIMEdf, vardf, figname, addfloat=TRUE, longdf_daily = longdf_daily)
   
   ###############
-  # NC Creation #
+  # NC Creation - M #
   ###############
-  ncfname <- paste0(area,'_omi_',short_omi_name,'_area_averaged_',vardf$ncname,'_',first_occurence,'_',prod_time,'.nc')
+  ncfname <- paste0(area,'_omi_',short_omi_name,'_trend_',vardf$ncname,'_monthly_',prod_time,'.nc')
   
   # -- Create the dimensions of the netcdf file
   timedim <- ncdim_def( as.character(TIMEdf$name)  ,
                         as.character(TIMEdf$units) ,
                         vals  = timevals           ,
                         unlim = TRUE)
+  
+  # timedim_D <- ncdim_def( paste0(as.character(TIMEdf$name),'_daily')  ,
+  #                       as.character(TIMEdf$units) ,
+  #                       vals  = timevals_daily           ,
+  #                       unlim = TRUE)
   
   nvdim   <- ncdim_def( name = "nv",
                         units = "",
@@ -165,22 +179,22 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   count<-1
   defVar<-list()
   
-  for (p in Platformlist$Platform) {
-    tmp<- ncvar_def(name     = paste0(vardf$name,'_',p),
-              units    = as.character(vardf$units),
-              dim      = list(timedim),
-              missval  = vardf$FillValue, 
-              longname = vardf$long_name)    
-      
-      defVar[[count]] <- tmp
-      count<- count+1
-    }
+  # for (p in Platformlist$Platform) {
+  #   tmp<- ncvar_def(name     = paste0(vardf$name,'_',p),
+  #             units    = as.character(vardf$units),
+  #             dim      = list(timedim_D),
+  #             missval  = vardf$FillValue, 
+  #             longname = vardf$long_name)    
+  #     
+  #     defVar[[count]] <- tmp
+  #     count<- count+1
+  #   }
   ###
-   tmp<- ncvar_def(name     = paste0(vardf$name,'_','mean'),
+   tmp<- ncvar_def(   name     = paste0(vardf$name,'_','mean'),
                       units    = as.character(vardf$units),
                       dim      = list(timedim),
                       missval  = vardf$FillValue, 
-                      longname = as.character(vardf$long_name))    
+                      longname = paste0( as.character(vardf$long_name), ' - monthly mean'))     
    defVar[[count]] <- tmp
    count<- count+1
   ###
@@ -188,7 +202,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                    units    = as.character(vardf$units),
                    dim      = list(timedim),
                    missval  = vardf$FillValue, 
-                   longname = as.character(vardf$long_name))    
+                   longname = paste0( as.character(vardf$long_name), ' - monthly mean standard error'))
    defVar[[count]] <- tmp
    count<- count+1
   ###
@@ -203,15 +217,15 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   ncout   <- nc_create(ncfname,defVar,force_v4=T)
 
   ## Writing Variables values
-  for (p in Platformlist$Platform) {  
-    ncvar_put(ncout,paste0(vardf$name,'_',p),replace(longdf[,p],(is.na(longdf[,p]) |  is.nan(longdf[,p])|is.infinite(longdf[,p])) ,vardf$FillValue))
-  }
+  # for (p in Platformlist$Platform) {  
+  #   ncvar_put(ncout,paste0(vardf$name,'_',p),replace(longdf_daily[,p],(is.na(longdf_daily[,p]) |  is.nan(longdf_daily[,p])|is.infinite(longdf_daily[,p])) ,vardf$FillValue))
+  # }
   ncvar_put(ncout,paste0(vardf$name,'_','std'), replace( longdf[,'stde'] , (is.na(longdf[,'stde']) |  is.nan(longdf[,'stde'])|is.infinite(longdf[,'stde'])) ,vardf$FillValue))
   ncvar_put(ncout,paste0(vardf$name,'_','mean'), longdf[,'mean'])
   ncvar_put(ncout,"time_bnds", matrix( data = c(timebounds[1:(length(timebounds)-1)],
                                                 timebounds[2:(length(timebounds))  ]), nrow = 2, byrow = TRUE) )
   #############
-  # ATRIBUTES #
+  # ATRIBUTES  - M #
   #############
   
   # Variable Attributes 
@@ -222,32 +236,100 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   ncatt_put(ncout,"time","calendar",TIMEdf$calendar)
   ncatt_put(ncout,"time","bounds","time_bnds")
   
-    for (p in Platformlist$Platform) {  
-      ncatt_put(ncout,paste0(vardf$name,'_',p), "comment"      , paste0( vardf$comment, ' as measured from ARGO ', p))
-    }
-    ncatt_put(ncout,paste0(vardf$name,'_','mean'), "comment"      , paste0( vardf$comment, ' monthly average'))
+    # for (p in Platformlist$Platform) {  
+    #   ncatt_put(ncout,paste0(vardf$name,'_',p), "comment"      , paste0( vardf$comment, ' as measured from ARGO ', p))
+    # }
+    #ncatt_put(ncout,paste0(vardf$name,'_','mean'), "comment"      , paste0( vardf$comment, 'monthly average'))
     ncatt_put(ncout,paste0(vardf$name,'_','mean'), "cell_methods","time: mean")
     ncatt_put(ncout,paste0(vardf$name,'_','mean'), "ancillary_variables" , paste0( vardf$name,'_','std'))
-    ncatt_put(ncout,paste0(vardf$name,'_','std'), "comment"       , paste0( vardf$comment, ' monthly average standard error'))
+    ncatt_put(ncout,paste0(vardf$name,'_','mean'), "standard_name" , paste0( vardf$name,' mean'   ))
+    #ncatt_put(ncout,paste0(vardf$name,'_','std'), "comment"       , paste0( vardf$comment, 'monthly average standard error'))
     ncatt_put(ncout,paste0(vardf$name,'_','std'), "standard_name" , paste0( vardf$name,'_','mean',' standard_error'   ))
     
 #  Global Attributes
-  ncatt_put(ncout,0,'title'       ,'Black Sea Oxygen Inventory' )# to be consistent with PIT
-  ncatt_put(ncout,0,'institution' ,'ULiege')
+  ncatt_put(ncout,0,'title'       ,'Black Sea Oxygen Content' )# to be consistent with PIT
+  ncatt_put(ncout,0,'institution' ,'MAST-ULiege')
   ncatt_put(ncout,0,'references'  ,'http://marine.copernicus.eu') #please do not change
   ncatt_put(ncout,0,'Conventions' ,'CF-1.7')
   ncatt_put(ncout,0,'credit'      ,'E.U. Copernicus Marine Service Information (CMEMS)' )#please do not change
   ncatt_put(ncout,0,'contact'     ,'servicedesk.cmems@mercator-ocean.eu'       )         #please do not change
   ncatt_put(ncout,0,'source'      ,'INSITU_BS_NRT_OBSERVATIONS_013_034')
   ncatt_put(ncout,0,'licence'     ,'http://marine.copernicus.eu/services-portfolio/service-commitments-and-licence/'  ) #please do not change
-  ncatt_put(ncout,0,'product'     ,'BS_OMI_OC')
-  ncatt_put(ncout,0,'dataset'     ,'bs_omi_oc')
+  ncatt_put(ncout,0,'product'     ,'BLKSEA_OMI_O2_TREND')
+  ncatt_put(ncout,0,'dataset'     , paste0('BLKSEA_OMI_O2_TREND_',vardf$name))
   ncatt_put(ncout,0,'quality_information_document','http://marine.copernicus.eu/documents/QUID/CMEMS-OMI-QUID-BS-OC-TSERIES.pdf')
   ncatt_put(ncout,0,'product_user_manual'         ,'http://marine.copernicus.eu/documents/PUM/CMEMS-OMI-PUM-OC.pdf')
-  ncatt_put(ncout,0,'area'                        ,'BS')
+  ncatt_put(ncout,0,'area'                        ,'BLKSEA')
   ncatt_put(ncout,0,'comment'                     ,'Period : 2010-2018')
   nc_close(ncout)
 
+  ########################
+  # NC Creation  - Daily #
+  ########################
+  ncfname <- paste0(area,'_omi_',short_omi_name,'_trend_',vardf$ncname,'_daily_',prod_time,'.nc')
+  
+  # -- Create the dimensions of the netcdf file
+  timedim <- ncdim_def(   as.character(TIMEdf$name)  ,
+                          as.character(TIMEdf$units) ,
+                          vals  = timevals_daily           ,
+                          unlim = TRUE)
+  
+  # -- Create vars
+  count<-1
+  defVar<-list()
+  
+  for (p in Platformlist$Platform) {
+    tmp<- ncvar_def(name     = paste0(vardf$name,'_',p),
+                    units    = as.character(vardf$units),
+                    dim      = list(timedim),
+                    missval  = vardf$FillValue, 
+                    longname = vardf$long_name)    
+    
+    defVar[[count]] <- tmp
+    count<- count+1
+  }
+  
+  # -- Create netcdf file  
+  if (file.exists(ncfname)) file.remove(ncfname)
+  ncout   <- nc_create(ncfname,defVar,force_v4=T)
+  
+  ## Writing Variables values
+  for (p in Platformlist$Platform) {  
+    ncvar_put(ncout,paste0(vardf$name,'_',p),replace(longdf_daily[,p],(is.na(longdf_daily[,p]) |  is.nan(longdf_daily[,p])|is.infinite(longdf_daily[,p])) ,vardf$FillValue))
+  }
+  
+  ################
+  # ATRIBUTES -D #
+  ################
+  
+  # Variable Attributes 
+  #  - time
+  ncatt_put(ncout,"time","standard_name","time")
+  ncatt_put(ncout,"time","unit",TIMEdf$units)
+  ncatt_put(ncout,"time","axis",'T')
+  ncatt_put(ncout,"time","calendar",TIMEdf$calendar)
+  
+  for (p in Platformlist$Platform) {  
+    ncatt_put(ncout,paste0(vardf$name,'_',p), "comment"      , paste0( vardf$comment, ' as measured from ARGO ', p))
+  }
+  
+  #  Global Attributes
+  ncatt_put(ncout,0,'title'       ,'Black Sea Oxygen Content' )# to be consistent with PIT
+  ncatt_put(ncout,0,'institution' ,'MAST-ULiege')
+  ncatt_put(ncout,0,'references'  ,'http://marine.copernicus.eu') #please do not change
+  ncatt_put(ncout,0,'Conventions' ,'CF-1.7')
+  ncatt_put(ncout,0,'credit'      ,'E.U. Copernicus Marine Service Information (CMEMS)' )#please do not change
+  ncatt_put(ncout,0,'contact'     ,'servicedesk.cmems@mercator-ocean.eu'       )         #please do not change
+  ncatt_put(ncout,0,'source'      ,'INSITU_BS_NRT_OBSERVATIONS_013_034')
+  ncatt_put(ncout,0,'licence'     ,'http://marine.copernicus.eu/services-portfolio/service-commitments-and-licence/'  ) #please do not change
+  ncatt_put(ncout,0,'product'     ,'BLKSEA_OMI_O2_TREND')
+  ncatt_put(ncout,0,'dataset'     , paste0('BLKSEA_OMI_O2_TREND_',vardf$name))
+  ncatt_put(ncout,0,'quality_information_document','http://marine.copernicus.eu/documents/QUID/CMEMS-OMI-QUID-BS-OC-TSERIES.pdf')
+  ncatt_put(ncout,0,'product_user_manual'         ,'http://marine.copernicus.eu/documents/PUM/CMEMS-OMI-PUM-OC.pdf')
+  ncatt_put(ncout,0,'area'                        ,'BLKSEA')
+  ncatt_put(ncout,0,'comment'                     ,'Period : 2010-2018')
+  nc_close(ncout)
+  
 ################
 # ANNUAL FILES #
 ################
@@ -333,15 +415,16 @@ NetcdfOutput_OMI_MP <- function(df,varname){
     }
   }
   
+
+  
   longdfannual <- ddply(longdfannual,.(year), mutate,
                         mean = mean(c(Argos,Ship_casts), na.rm=TRUE), 
                         stde = max (c(Argos_error,Ship_casts_error), na.rm=TRUE )  )
   
-  # # # # # # # #
-  # NC Creation #
-  # # # # # # # #
-  
-  ncfname <- paste0(area,'_omi_',short_omi_name,'_area_averaged_',vardf$ncname,'_Annual_',first_occurence,'_',prod_time,'.nc')
+  # # # # # # # # # #
+  # NC Creation - A #
+  # # # # # # # # # #
+  ncfname <- paste0(area,'_omi_',short_omi_name,'_trend_',vardf$ncname,'_annual_',prod_time,'.nc')
   
   # -- Create the dimensions of the netcdf file
   timedim <- ncdim_def( as.character(TIMEdf$name)  ,
@@ -363,7 +446,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                   units    = as.character(vardf$units),
                   dim      = list(timedim),
                   missval  = vardf$FillValue, 
-                  longname = as.character(vardf$long_name))    
+                  longname = paste0( as.character(vardf$long_name) , ' - annual mean from Argo floats'))    
   defVar[[count]] <- tmp
   count<- count+1
   ###
@@ -371,7 +454,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                   units    = as.character(vardf$units),
                   dim      = list(timedim),
                   missval  = vardf$FillValue, 
-                  longname = as.character(vardf$long_name))    
+                  longname = paste0( as.character(vardf$long_name) , ' - annual mean from Argo floats standard error'))    
   defVar[[count]] <- tmp
   count<- count+1
   ###
@@ -379,7 +462,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                   units    = as.character(vardf$units),
                   dim      = list(timedim),
                   missval  = vardf$FillValue, 
-                  longname = as.character(vardf$long_name))    
+                  longname =paste0( as.character(vardf$long_name) , ' - annual mean from ship casts'))    
   defVar[[count]] <- tmp
   count<- count+1
   ###
@@ -387,23 +470,24 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                   units    = as.character(vardf$units),
                   dim      = list(timedim),
                   missval  = vardf$FillValue, 
-                  longname = as.character(vardf$long_name))    
+                  longname = paste0( as.character(vardf$long_name) , ' - annual mean from ship casts standard error'))    
   defVar[[count]] <- tmp
   count<- count+1
   ###
-  tmp<- ncvar_def(name     = vardf$name,
+  tmp<- ncvar_def(name     = paste0(vardf$name,'_','mean'),
                   units    = as.character(vardf$units),
                   dim      = list(timedim),
                   missval  = vardf$FillValue, 
-                  longname = as.character(vardf$long_name))    
+                  longname = paste0( as.character(vardf$long_name) , ' - annual mean'))
+  
   defVar[[count]] <- tmp
   count<- count+1
   ###
-  tmp<- ncvar_def(name     = paste0(vardf$name,'_','error'),
+  tmp<- ncvar_def(name     = paste0(vardf$name,'_','std'),
                   units    = as.character(vardf$units),
                   dim      = list(timedim),
                   missval  = vardf$FillValue, 
-                  longname = as.character(vardf$long_name))    
+                  longname = paste0( as.character(vardf$long_name), ' - annual mean standard error'))    
   defVar[[count]] <- tmp
   count<- count+1
   ###
@@ -422,8 +506,8 @@ NetcdfOutput_OMI_MP <- function(df,varname){
     ncvar_put(ncout,paste0(vardf$name,'_',p),
               replace(longdfannual[,p],(is.na(longdfannual[,p]) |  is.nan(longdfannual[,p])|is.infinite(longdfannual[,p])) ,vardf$FillValue))
   }
-  ncvar_put(ncout,vardf$name, longdfannual[,'mean'])
-  ncvar_put(ncout,paste0(vardf$name,'_','error'), replace(
+  ncvar_put(ncout,paste0(vardf$name,'_mean'), longdfannual[,'mean'])
+  ncvar_put(ncout,paste0(vardf$name,'_','std'), replace(
     longdfannual[,'stde'] , (is.na(longdfannual[,'stde']) |  is.nan(longdfannual[,'stde'])|is.infinite(longdfannual[,'stde'])) ,vardf$FillValue))
   
   ncvar_put(ncout,"time_bnds", matrix( data = c(longdfannual$beg , longdfannual$end), nrow = 2, byrow = TRUE) )
@@ -434,33 +518,28 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   # # # # # # #
   
   # Variable Attributes 
-  #  - time
   ncatt_put(ncout,"time","standard_name","time")
   ncatt_put(ncout,"time","unit",TIMEdf$units)
   ncatt_put(ncout,"time","axis",'T')
   ncatt_put(ncout,"time","calendar",TIMEdf$calendar)
   ncatt_put(ncout,"time","bounds","time_bnds")
-  
-#  ncatt_put(ncout,paste0(vardf$name,'_','mean'), "comment"      , paste0( vardf$comment, ' ',timespan, ' days window average'))
-#  ncatt_put(ncout,paste0(vardf$name,'_','mean'), "cell_methods","time: mean")
-#  ncatt_put(ncout,paste0(vardf$name,'_','std'), "comment"       , paste0( vardf$comment, ' ',timespan, ' days window standard error'))
-  
+  ncatt_put(ncout,paste0(vardf$name,'_','mean'), "cell_methods","time: mean")
   
   #  Global Attributes
-  ncatt_put(ncout,0,'title'       ,'Black Sea Oxygen Inventory' )# to be consistent with PIT
-  ncatt_put(ncout,0,'institution' ,'ULiege')
+  ncatt_put(ncout,0,'title'       ,'Black Sea Oxygen Content' )# to be consistent with PIT
+  ncatt_put(ncout,0,'institution' ,'MAST-ULiege')
   ncatt_put(ncout,0,'references'  ,'http://marine.copernicus.eu') #please do not change
   ncatt_put(ncout,0,'Conventions' ,'CF-1.7')
   ncatt_put(ncout,0,'credit'      ,'E.U. Copernicus Marine Service Information (CMEMS)' )#please do not change
   ncatt_put(ncout,0,'contact'     ,'servicedesk.cmems@mercator-ocean.eu'       )         #please do not change
   ncatt_put(ncout,0,'source'      ,'INSITU_BS_NRT_OBSERVATIONS_013_034')
   ncatt_put(ncout,0,'licence'     ,'http://marine.copernicus.eu/services-portfolio/service-commitments-and-licence/'  ) #please do not change
-  ncatt_put(ncout,0,'product'     ,'BS_OMI_OC')
-  ncatt_put(ncout,0,'dataset'     ,'bs_omi_oc')
+  ncatt_put(ncout,0,'product'     ,'BLKSEA_OMI_O2_TREND')
+  ncatt_put(ncout,0,'dataset'     , paste0('BLKSEA_OMI_O2_TREND_',vardf$name))
   ncatt_put(ncout,0,'quality_information_document','http://marine.copernicus.eu/documents/QUID/CMEMS-OMI-QUID-BS-OC-TSERIES.pdf')
   ncatt_put(ncout,0,'product_user_manual'         ,'http://marine.copernicus.eu/documents/PUM/CMEMS-OMI-PUM-OC.pdf')
-  ncatt_put(ncout,0,'area'                        ,'BS')
-  ncatt_put(ncout,0,'comment'                     ,'Period : 2010-2018')
+  ncatt_put(ncout,0,'area'                        ,'BLKSEA')
+  ncatt_put(ncout,0,'comment'                     ,'Period : 1955-2017')
   nc_close(ncout)
 }
 
