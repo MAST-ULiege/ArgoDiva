@@ -1,0 +1,230 @@
+---
+title: "Black Sea PAR attenuation"
+author: "Arthur Capet"
+date: "November 20, 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE,comment = FALSE, echo=TRUE)
+```
+
+# The ArgoDiva Toolbox framework. 
+
+We use the usual toolbox workflow  :
+
+* Load data
+* Define functions and apply on all profiles
+* Analyses/manipulate the results
+
+# Data Load
+
+We used here Argo profiles from the Coriolis websiste as collected until ~early 2018.
+3 floats have "Downwelling Irradiance" as a variable.
+We did not analyse spatial/temporal coverage at this stage.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Load package and function sources
+source("../../Utils/ArgoLoad.R")
+datacase <- "CORIOLIS" 
+
+################################
+# Criterium for Argo selection #
+################################
+
+source(paste0( "BSPARLoad_", datacase,".R" ) )
+
+########################
+# Function definitions #
+########################
+# To add new function, use :  
+source("ArgoVertFunctions_BSPAR.R")
+source("../../Utils/ArgoCompleteBIS.R")
+source("../../Utils/ArgoExtractForCastedDF.R")
+```
+# Function evaluation 
+
+The toolbox allows to evaluate functions on each value or each profile. 
+In this case, the functions evaluated on each profile returns
+
+* optical parameters that reproduce at best the observed PAR profile. 
+
+* depth of 1% and 10% of surface incoming light level (evaluated in the upper 1m).
+
+
+Since Argo records PARvalues, the following parameters are to be used for the PAR only fraction .
+We are thus **NOT** considering IR fraction or attenuation here.
+As Luc mentionned, the IR attenuation doesn't matter with a 5m upper cell, it will all be absorbed anyway.
+
+There are 4 parameters for the remaining 2-band PAR attenuation model. 
+$$ PAR(z)  = PAR_0 [ p_s.e^{-k_s z} + (1-p_s)e^{-k_l z} ]$$
+
+* $PAR_0$ : is left free for each individual profile calibration. Avoiding this would mean to collect surface PAR at each float location from external sources, eg. from ECMWF fields (short-wave and cloud), and assuming a fixed PAR proportion for surface incoming light. 
+
+* $p_s$ : is fixed to better contrain the other parameters. I used the 0.27 value that we were discussing. 
+
+* $k_s$ and $k_l$ : are the main targetted parameters here. 
+
+The procedure returns a dataframe. The summary below gives an idea of the calibrated parameter distribution statistics. 
+
+```{r, warning=FALSE}
+
+########################
+# Complete (by level)  #
+#      and / or        #
+# Extract (by profile) #
+########################
+# Here we use the cast function to retain only a single entry per "id variable" (see formula below)
+ddi  <- dcast(fulldf,qc+depth+juld+lon+lat+Platform+day+month+year~variable,fun.aggregate = mean, na.rm=T)
+ddin <- subset(ddi,!is.na(PAR) & PAR > 0 & qc ==0)
+ddim <- melt(ddin,id.vars = c("qc","depth","juld","lon","lat","Platform","day","month","year"))
+
+flist   <- list("isoPAR","PAR2bands")
+
+finaldf <- ArgoExtractForCastDF(ddin, flist )
+finaldf <- melt(finaldf, id.vars = c("qc","juld","lon","lat","Platform","day","month","year"))
+finaldffrop<-dcast(finaldf,qc+juld+lon+lat+Platform+day+month+year~variable, fun.aggregate = mean, na.rm=TRUE)
+
+summary(finaldffrop)
+```
+
+About `r sum(is.na(finaldffrop$ks0))` out of `r length(finaldffrop$ks0)` calibrations did not converge. 
+I don't know why.. there are probably ways to adress this with a bit more time involved (cf. nls function)
+
+# Visualisation of the identified paramter distribution
+
+1. All together to have an idea of the spread
+
+
+```{r, echo=FALSE}
+ggplot(subset(finaldf, !is.na(value)), aes(x=value))+
+  geom_density()+facet_wrap(~variable, scales = "free", nrow=2)
+```
+
+
+2. Grouped by month to check that there is no overwhelming seasonal variability (except the one expected for PAR0)
+
+
+```{r, echo=FALSE}
+
+ggplot(subset(finaldf, !is.na(value) & variable %in% c('PAR0','ks0','kl0')), aes(x=value, color=factor(month), group=factor(month)))+
+  geom_boxplot(aes(x=month, y=value))+facet_wrap(~variable, scales = "free", nrow=1)
+
+```
+
+
+```{r, echo=FALSE, include=FALSE}
+ggplot(subset(finaldf, !is.na(value) & variable %in% c("ks0")), aes(x=lon, y=lat, color=value))+
+    geom_point()+facet_wrap(~variable, scales = "free", nrow=1)+scale_color_distiller(palette = "YlGnBu")
+
+ggplot(subset(finaldf, !is.na(value) & variable %in% c("kl0")), aes(x=lon, y=lat, color=value))+
+  geom_point()+facet_wrap(~variable, scales = "free", nrow=1)+scale_color_distiller(palette = "YlGnBu")
+```
+
+```{r, include=FALSE}
+summary(finaldffrop)
+```
+
+# Check
+
+For a check with actual Argo PAR data (colors below), we first reconstructed typical PAR0 value for each month (the mean and 0.5, 1.5 times the mean). 
+We then evaluated light profiles using the unique parameter values (black lines).
+
+The calibrated parameters (medians of the above distribution) are : 
+
+* $k_s$ = `r median(finaldffrop$ks0, na.rm=TRUE) `
+
+* $k_l$ = `r median(finaldffrop$kl0, na.rm=TRUE) `
+
+
+```{r, fig.height=7}
+zforp <- seq(0.5,100,.5)
+
+sumfinaldf <- ddply(finaldffrop, .(month),summarize, meanP0=mean(PAR0, na.rm=T))
+
+ksfinal<-median(finaldffrop$ks0, na.rm=TRUE)
+klfinal<-median(finaldffrop$kl0, na.rm=TRUE)
+
+PARCOMP <-ddply(sumfinaldf,.(month), function(dsub){
+ data.frame(PAR=c( Att_2band(zforp,dsub$meanP0,       ksfinal,klfinal),
+                   Att_2band(zforp,dsub$meanP0*0.5,   ksfinal,klfinal),
+                   Att_2band(zforp,dsub$meanP0*1.5,   ksfinal,klfinal)),
+                            depth=c(zforp,zforp,zforp), 
+            group=c(rep(1,length(zforp)),rep(2,length(zforp)) ,rep(3,length(zforp))  ),
+            month=dsub$month)})
+
+ggplot(ddin,aes(x=PAR, y=-depth, color=factor(month)))+
+  geom_point()+xlim(c(0,2000))+ylim(c(-80,0))+
+  facet_wrap(~month, scales = "free_x", ncol=2)+
+  geom_line(aes(group=group),data = PARCOMP, color="black")
+```
+
+Same in Log10
+
+```{r, fig.height=7}
+
+
+ggplot(ddin,aes(x=PAR, y=-depth, color=factor(month)))+
+  geom_point()+xlim(c(0.001,2000))+ylim(c(-150,0))+
+  facet_wrap(~month, ncol=2)+
+  geom_line(aes(group=group),data = PARCOMP, color="black")+scale_x_log10()
+
+```
+
+# BIAS
+
+To estimate the bias, I computed mean monthly profile from the Argos, and compared them to modelled light penetration obtained with the surface value. 
+
+On the plot below, X axis is the bias (Model - mean profile). 
+
+
+```{r, fig.height=7}
+ddin2 <- ddin
+ddin2$depth  <- 0.5*(round(ddin2$depth*2)) 
+dbias <- ddply(ddin2, .(month,depth), summarise, PAR=mean(PAR, na.rm=TRUE))
+dbias <- ddply(dbias, .(month), mutate, BIAS = Att_2band(depth, interp1(depth,PAR,1), ksfinal,klfinal, depthP0=1)-PAR)
+ggplot(dbias, aes(x=BIAS, y=-depth, color=factor(month)))+
+  geom_point()+facet_wrap(~month)+ylim(c(-100,0))+xlim(c(-200,200))
+```
+
+# Iso-lumes
+
+Now, an attempt to compare the 1% an 10% isolume derived from Argo and re-modelled light profile.  
+Remember, we use here the 1% and 10% of the 1 m light value (0 rarely available for Argos).
+The vertical lines indicate the z10 and z100 from the recalibrated model (which does not change with season).
+
+```{r}
+
+PARCOMPiso  <- ddply(subset(PARCOMP,group==1),.(month), function(dsub){
+                        p0   <- dsub[which(dsub$depth==1),"PAR"]
+                        z10  <- dsub[which.min(abs(dsub$PAR-p0/10)),"depth"]
+                        z100 <- dsub[which.min(abs(dsub$PAR-p0/100)),"depth"]
+                        return(data.frame(z10=z10,z100=z100))})
+
+
+ggplot(subset(finaldf, variable %in% c('z10','z100')),aes(x=value))+
+  geom_density()+ facet_wrap(~variable, scales = "free_x", ncol=2)+
+  geom_vline(data=melt(PARCOMPiso, id.vars = "month"),aes(xintercept = value))
+
+
+ggplot(subset(finaldf, variable %in% c('z10','z100')),aes(x=value, color=factor(month)))+
+  geom_density()+ facet_wrap(~variable, scales = "free_x", ncol=2)+
+  geom_vline(data=melt(PARCOMPiso, id.vars = "month"),aes(xintercept = value))
+
+
+
+```
+
+# Conclusion
+
+Those parameters should be used for the PAR part of incoming radiation, when no additional "bio" attenuation terms are involved.
+They represent "optimal.." spatially and seasonally constant attenuation constants for two spectral bands representing respectively 0.27 and 0.63 of the incoming PAR radiation.
+
+There seems to be a systematic underestimation of underwater PAR, particularly in summer.
+Obviously the simplified 2-band, constant attenuation paradigm cannot allow seasonal fluctuation in the 1 and 10% light peneatration depth.
+However, we may expect to have a balance between overestimation and underestimation periods. 
+One reason why we tend to have mostly overestimation of the attenuation might be that surface (high) value weights more on the fitting procedure, leading to higher residuals. The low value therefore tends to have less weigth on the calibration procedure.  
+
+
+
+

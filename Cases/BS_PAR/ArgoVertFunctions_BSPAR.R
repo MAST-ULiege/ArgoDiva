@@ -29,33 +29,84 @@ grad_att <- function(PRESr,k,PAR0){
   return(PAR)
 }
 
-Att_2band <- function(PRES,PAR0,parts,ks0,kl0) {
+Att_2band <- function(PRES,PAR0,ks0,kl0,depthP0=0) {
   ##  "CHL_2BANDS" ##
   # CHLA specific attenuation + two bandwidths
+  if (depthP0 !=0){
+    PAR0  = PAR0/(parts*exp(-ks0*depthP0)+(1-parts)*exp(-kl0*depthP0)  ) 
+  }
   PAR0s <- PAR0*parts
   PAR0l <- PAR0*(1-parts)
-  ks    <- ks0*(PRES/PRES)
-  kl    <- kl0*(PRES/PRES)
+  ks    <- rep(ks0,length(PRES))
+  kl    <- rep(kl0,length(PRES))
   PARs  <- grad_att(PRES,ks,PAR0s)
   PARl  <- grad_att(PRES,kl,PAR0l)
   PAR<-PARs+PARl
   return(PAR)
 }
 
+
+
+
+
+p2b_start = c(PAR0 = 1500 ,  ks0 = 0.04 , kl0=0.001) 
+p2b_lower = c(PAR0 = 0    ,  ks0 = 0    , kl0=0    )
+p2b_upper = c(PAR0 = 2500 ,  ks0 = 3   , kl0=10)
+
+Out_Default <- data.frame("PAR0"=NA,
+                          "ks0"=NA,
+                          "kl0"=NA)
+
+parts = 0.27
+
+## Too Slow
+# require(FME)
+# f2bandFME <- function(p, profiledata){
+#   with(as.list(p),{
+#     MOD <- Att_2band(profiledata$depth,PAR0,ks0,kl0)
+#     OBS <- profiledata$PAR
+# #    return(modCost(model=MOD, obs = OBS))
+#     return(MOD-OBS)
+#     
+#   })
+# }
+# 
+# PAR2bands_FME <- function(profile){
+#   # Intended for Casted DF
+#   Out_Default <- data.frame("PAR0"=NA,
+#                             "parts"=NA,
+#                             "kl0"=NA)
+#   if (FilterForPAR(profile)){
+#     out <-try_default({
+#       
+#       m   <- modFit(f = f2bandFME,
+#                     p = p2b_start,
+#                     lower = p2b_lower , 
+#                     upper = p2b_upper , 
+#                     method = "Pseudo" ,
+#                     profiledata = profile )
+#         
+#       return(as.data.frame(t(coef(m))))},
+#       Out_Default)
+#   }else{
+#     out <- Out_Default
+#   }
+#   return(out)
+# }
+#####################################################
+# NLS #
+
 PAR2bands <- function(profile){
   # Intended for Casted DF
-  Out_Default <- data.frame("PAR0"=NA,
-                            "parts"=NA,
-                            "ks0"=NA,
-                            "kl0"=NA)
   if (FilterForPAR(profile)){
     out <-try_default({
-      m   <-nls(PAR ~ Att_2band(depth,PAR0,parts,ks0,kl0),
+      m   <-nls(PAR ~ Att_2band(depth,PAR0,ks0,kl0),
           data = profile,
-          start = c(PAR0 = 1500 , parts=0.2305, ks0 = 0.04 , kl0=0.001), 
-          lower = c(PAR0 = 0    , parts=0.23  , ks0 = 0    , kl0=0    ),
-          upper = c(PAR0 = 2500 , parts=0.231  , ks0 = 10   , kl0=10),
-          algorithm = "port"
+          start = p2b_start, 
+          lower = p2b_lower,
+          upper = p2b_upper,
+          algorithm = "port", 
+          control = list(maxiter= 1000)
           )
       return(as.data.frame(t(coef(m))))},
     Out_Default)
@@ -65,19 +116,44 @@ PAR2bands <- function(profile){
   return(out)
 }
 
+
+DefOut_isoPAR <- data.frame("z10"=NA,
+                            "z100"=NA)
+
+isoPAR <- function(profile){
+  # Intended for Casted DF
+  if (FilterForPAR(profile)){
+    out    <- try_default({
+
+
+    d <- profile$depth[which( !is.na(profile$depth) & profile$PAR>0.1  )]
+    P <- profile$PAR[which( !is.na(profile$depth) & profile$PAR>0.1  )]
+
+    p1 <-interp1(d,P, 1)      
+#      pcP <- pchip(profile$depth,profilePAR, seq(1,200))
+      
+      z10  <- interp1(P,d, p1/10) 
+      z100 <- interp1(P,d, p1/100) 
+      return(data.frame(z10=z10,z100=z100))},
+      DefOut_isoPAR)
+  }else{
+    out <- DefOut_isoPAR
+  }
+  return(out)
+}
+
+
+
+
+
+#####################################################
 R20 <- function(profile){
   # Intended for Casted DF
   if (FilterForVOX(profile)){
-    out <- data.frame(
-    variable = "R20",
-    value=min(profile$RHO[which(profile$DOXY<20)],na.rm = T)
-  )
-}else{
-  out <- data.frame(
-    variable = "Z20",
-    value=NA
-  )
-}
+    out <- data.frame( variable = "R20",value=min(profile$RHO[which(profile$DOXY<20)],na.rm = T))
+    }else{
+    out <- data.frame( variable = "Z20", value=NA)
+    }
   return(out)
 }
 
@@ -189,6 +265,8 @@ CCC <- function(profile){
 
 ###########################################
 # Criterion for function evaluation
+#
+# Given below are conditions for exclusion 
 
 FilterForVOX <- function(profile){
   # Gather here requirements for Oxygen diagnostic extraction
@@ -199,7 +277,6 @@ FilterForVOX <- function(profile){
   return (flag)
 }
 
-### FINISH THIS ###
 FilterForCCC <- function(profile){
   # Gather here requirements for CCC diagnostic extraction
   flag=TRUE
@@ -211,13 +288,12 @@ FilterForCCC <- function(profile){
   return (flag)
 }
 
-
 FilterForPAR <- function(profile){
-  # Gather here requirements for CCC diagnostic extraction
+  # Gather here requirements for PAR diagnostic extraction
   flag=TRUE
-  if (sum(!is.na(profile$PAR)) < 10 #|   # min 10 depths
+  if (sum(!is.na(profile$PAR)) < 10 |   # min 10 depths
       # min(profile$TEMP)>8.35   |   # CIL is defined
-      # min(profile$depth)>15    |   # CIL is defined
+       min(profile$depth) > 1  #  |   # CIL is defined
       # max(profile$depth)    < 80
   ){flag=FALSE}
   return (flag)
