@@ -57,7 +57,7 @@ Out_Default <- data.frame("PAR0"=NA,
                           "ks0"=NA,
                           "kl0"=NA)
 
-parts = 0.27
+parts = 0.37
 
 ## Too Slow
 # require(FME)

@@ -6,7 +6,7 @@ output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(warning = FALSE,comment = FALSE, echo=TRUE)
+knitr::opts_chunk$set(warning = FALSE,comment = FALSE, echo=FALSE)
 ```
 
 # The ArgoDiva Toolbox framework. 
@@ -61,7 +61,7 @@ $$ PAR(z)  = PAR_0 [ p_s.e^{-k_s z} + (1-p_s)e^{-k_l z} ]$$
 
 * $PAR_0$ : is left free for each individual profile calibration. Avoiding this would mean to collect surface PAR at each float location from external sources, eg. from ECMWF fields (short-wave and cloud), and assuming a fixed PAR proportion for surface incoming light. 
 
-* $p_s$ : is fixed to better contrain the other parameters. I used the 0.27 value that we were discussing. 
+* $p_s$ : is fixed to better contrain the other parameters. I used the 0.37 value that we were discussing. 
 
 * $k_s$ and $k_l$ : are the main targetted parameters here. 
 
@@ -218,7 +218,7 @@ ggplot(subset(finaldf, variable %in% c('z10','z100')),aes(x=value, color=factor(
 # Conclusion
 
 Those parameters should be used for the PAR part of incoming radiation, when no additional "bio" attenuation terms are involved.
-They represent "optimal.." spatially and seasonally constant attenuation constants for two spectral bands representing respectively 0.27 and 0.63 of the incoming PAR radiation.
+They represent "optimal.." spatially and seasonally constant attenuation constants for two spectral bands representing respectively 0.37 and 0.63 of the incoming PAR radiation.
 
 There seems to be a systematic underestimation of underwater PAR, particularly in summer.
 Obviously the simplified 2-band, constant attenuation paradigm cannot allow seasonal fluctuation in the 1 and 10% light peneatration depth.
