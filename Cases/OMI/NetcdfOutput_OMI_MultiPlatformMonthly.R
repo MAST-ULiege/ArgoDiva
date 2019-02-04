@@ -24,7 +24,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                        FillValue     = -9999.0,
                        Comment       = 'Vertically integrated oxygen concentration',
                        minsc         = 0, 
-                       maxsc         = 40,
+                       maxsc         = 45,
                        ncname        = 'oxygen_inventory')
   #rownames(VOCdf)<-"VOC"
   
@@ -34,7 +34,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                        standard_name = '20uM_O2_depth',
                        FillValue     = -9999.0,
                        Comment       = 'Depth at which [O2]<20µM', 
-                       minsc         = 170, 
+                       minsc         = 250, 
                        maxsc         = 0,
                        ncname        = '20uM_O2_depth')
   #rownames(Z20df)<-"Z20"
@@ -45,7 +45,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
                         standard_name = '20uM_O2_density',
                         FillValue     = -9999.0,
                         Comment       = 'Potential density anomaly at which [O2]<20µM',
-                        minsc         = 16.5, 
+                        minsc         = 17.5, 
                         maxsc         = 14.5,
                         ncname        = '20uM_O2_density')
   
@@ -539,7 +539,7 @@ NetcdfOutput_OMI_MP <- function(df,varname){
   ncatt_put(ncout,0,'quality_information_document','http://marine.copernicus.eu/documents/QUID/CMEMS-OMI-QUID-BS-OC-TSERIES.pdf')
   ncatt_put(ncout,0,'product_user_manual'         ,'http://marine.copernicus.eu/documents/PUM/CMEMS-OMI-PUM-OC.pdf')
   ncatt_put(ncout,0,'area'                        ,'BLKSEA')
-  ncatt_put(ncout,0,'comment'                     ,'Period : 1955-2017')
+  ncatt_put(ncout,0,'comment'                     ,'Period : 1955-2018')
   nc_close(ncout)
 }
 

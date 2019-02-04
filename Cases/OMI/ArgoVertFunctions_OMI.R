@@ -1,17 +1,34 @@
 ###########################################
 # Functions for "levels", ie. depths
 
+PotDensAnom <- function(llevel){
+  require(gsw)
+  tem <- subset(llevel,variable=="TEMP", value)
+  psal <- subset(llevel,variable=="PSAL", value)
+  depth <- llevel$depth[1] 
+  
+  SA <- gsw_SA_from_SP(psal,depth,llevel$lon[1],llevel$lat[1])
+  CT <- gsw_CT_from_t(SA,tem,depth)
+  sigma <- gsw_sigma0(SA,CT)
+  rho <- gsw_rho(SA,CT,depth)  
+  out <- data.frame( value = c(sigma, rho), variable = c('SIG','RHO')) #qc = rep(max(llevel$qc),2),
+  return(out)
+}
+
 InSituDens <- function(llevel){
   require(gsw)
   tem <- subset(llevel,variable=="TEMP", value)
   psal <- subset(llevel,variable=="PSAL", value)
-
-  psal <- gsw_SA_from_SP(psal,unique(llevel$depth),unique(llevel$lon),unique(llevel$lat))
-  rho_anomaly <- gsw_sigma0(psal,tem)
+  depth <- unique(llevel$depth)
   
-  out <- data.frame( value    = rho_anomaly, qc = min(llevel$qc),  variable = 'RHO')
+  SA <- gsw_SA_from_SP(psal,unique(llevel$depth),unique(llevel$lon),unique(llevel$lat))
+  CT <- gsw_CT_from_t(SA,tem,depth)
+  
+  rho <- gsw_rho(SA,CT,depth)
+  out <- data.frame( value = rho, qc = min(llevel$qc),  variable = 'RHO')
   return(out)
 }
+
 
 ###########################################
 # Functions for profiles
@@ -21,7 +38,7 @@ R20 <- function(profile){
   if (FilterForVOX(profile)){
     out <- data.frame(
     variable = "R20",
-    value=min(profile$RHO[which(profile$DOXY<20)],na.rm = T)
+    value=min(profile$SIG[which(profile$DOXY<20)],na.rm = T)
   )
 }else{
   out <- data.frame(
@@ -62,11 +79,11 @@ require(pracma)
 VOC <- function(profile){
   # Intended for Casted DF
   if (FilterForVOX(profile)){
-    Z20<-Z20(profile)$value
-    d  <- profile$depth[which(profile$depth<=Z20)]
-    o  <- profile$DOXY[which(profile$depth<=Z20)]
-    zp <- seq(1,Z20)
-    po <- pchip(d,o, seq(1,Z20))
+    z20 <-Z20(profile)$value
+    d  <- profile$depth[which(profile$depth<=z20)]
+    o  <- profile$DOXY[which(profile$depth<=z20)]
+    zp <- seq(1,z20)
+    po <- pchip(d,o, seq(1,z20))
     po[which(zp<min(d))]<-o[which(d==min(d))]
     try_default(
   out <- data.frame(
@@ -78,15 +95,17 @@ VOC <- function(profile){
     value=NA  ), 
   TRUE
   )
-     if (is.na(out$value)|out$value>5e4|out$value<100){
-       print(profile)
-print(       min(profile$depth))
-     plot(profile$DOXY,profile$depth,ylim=c(200,0) )
+     if (is.na(out$value)|out$value>5e2|out$value<1){
+      print('****')
+      print(profile)
+      print(min(profile$depth))
+      plot(profile$DOXY,profile$depth,ylim=c(200,0) )
       lines(c(20,20),c(400,0), col='red')
       lines(pchip(d,o, seq(1,Z20)),seq(1,Z20))
       lines(po,zp,col='green')
       points(pchip(d,o, seq(1,Z20)),seq(1,Z20), pch=3)
       print(out$value)
+      print('****')
       }
   }else{
     out <- data.frame(
@@ -103,7 +122,7 @@ CCC <- function(profile){
     #Z20<-Z20(profile)$value
     d  <- profile$depth#[which(profile$depth<=Z20)]
     t  <- profile$TEMP#[which(profile$depth<=Z20)]
-    r  <- profile$RHO
+    r  <- profile$SIG
     zp <- seq(1,200)
     pt <- pchip(d,t, zp)
     pr <- pchip(d,r, zp)
@@ -144,8 +163,14 @@ CCC <- function(profile){
 FilterForVOX <- function(profile){
   # Gather here requirements for Oxygen diagnostic extraction
   flag=TRUE
-  if (sum(!is.na(profile$DOXY))<10 | min(profile$DOXY)>20 | min(profile$depth)>15){
+  pd<-profile$depth[profile$depth<250]
+  if (sum(!is.na(profile$DOXY))<10 | 
+      min(profile$DOXY)>20 | 
+      min(profile$depth)>15 |
+      max( pd[2:length(pd)] - pd[1:(length(pd)-1)]) >40
+      ){
     flag=FALSE
+ 
   }
   return (flag)
 }

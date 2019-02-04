@@ -3,6 +3,7 @@
 
 # Load package and function sources
 source("../../Utils/ArgoLoad.R")
+source('ParSetup.R')
 # Overwrites default ArgoSelect function
 source("ArgoSelect_CMEMS.R")
 
@@ -28,20 +29,34 @@ source("../../Utils/ArgoExtractForCastedDF.R")
 # Extract (by profile) #
 ########################
 
+#system.time({
 ddi  <- dcast(fuldf,qc+depth+juld+lon+lat+Platform+day+month+year~variable,fun.aggregate = mean, na.rm=T)
 ddin <- subset(ddi,!is.na(DOXY))
 ddim <- melt(ddin,id.vars = c("qc","depth","juld","lon","lat","Platform","day","month","year"))
+#})
+print('** Done with first casting ** ') 
 
-flistl <- list("InSituDens")
-fdf   <- ArgoCompleteBIS(ddim, flistl)
+flistl <- list("PotDensAnom")#,"InSituDens")
+#system.time({
+fdf   <- ArgoCompleteBIS(ddim, flistl,.parallel=TRUE)
+#})
+print('** Done with level function ** ') 
 
+#system.time({
 ddi<-dcast(fdf,qc+depth+juld+lon+lat+Platform+day+month+year~variable,fun.aggregate = mean, na.rm=T)
-ddin<-subset(ddi,!is.na(DOXY) & !is.na(RHO))
+ddin<-subset(ddi,!is.na(DOXY) & !is.na(SIG) & !is.na(RHO))
 ddim<-melt(ddin,id.vars = c("qc","depth","juld","lon","lat","Platform","day","month","year"))
+#})
+print('** Done with second Casting ** ') 
 
+# Unit conversion from mmol/kg to mmol/L
+ddin$DOXY <- ddin$DOXY*ddin$RHO/1000
 flist   <- list("Z20","R20","VOC","CCC")
 
-finaldf <- ArgoExtractForCastDF(ddin, flist )
+#system.time({
+finaldf <- ArgoExtractForCastDF(ddin, flist,.parallel=FALSE)
+#})
+print('** Done with profile function ** ') 
 
 varsdf<-rbind(
   data.frame(row.names="VOC", ymin=5,    ymax= 35,   yminl=8,    ymaxl= 35,   Fact= 1/1000 , Unit="mol m-2", YLAB= paste("Oxygen Inventory "  ,sep="")),       
@@ -56,7 +71,7 @@ finaldffrop<-dcast(finaldf,qc+juld+lon+lat+Platform+day+month+year~variable, fun
 ######################
 
 # save(finaldffrop,file = 'Lastfinaldrop.Rdata') # load(file = 'Lastfinaldrop.Rdata')
-# save(finaldffrop,file = paste0('Lastfinaldrop',datacase,'.Rdata')) # load(file = paste0('Lastfinaldrop',datacase,'.Rdata'))
+# save(finaldffrop,file = paste0('Lastfinaldrop',datacase,'2.Rdata')) # load(file = paste0('Lastfinaldrop',datacase,'.Rdata'))
 source("NetcdfOutput_OMI_MultiPlatform.R")
 source("NetcdfOutput_OMI_MultiPlatformMonthly.R")
 

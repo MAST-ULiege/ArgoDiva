@@ -1,7 +1,9 @@
-require("plyr")
+ArgoExtractForCastDF<- function(fulldf, flist, .parallel=FALSE){
 
-ArgoExtractForCastDF<- function(fulldf, flist){
-
+  if (.parallel){
+    cl = createCluster(8, export = c(list("flist"),flist,"FilterForVOX"), lib = list("pracma"))
+  }
+  
   sdf <- ddply(fulldf, ~ juld+Platform, function(profile){
     flistoutputs <- ldply(flist,function(f){
       f<- match.fun(f)
@@ -19,8 +21,11 @@ ArgoExtractForCastDF<- function(fulldf, flist){
       juld  = profile$juld[1])
     
     return( cbind(flistoutputs, onelinedf) )
-  })
+  }, .parallel=.parallel)#, .paropts = list(.packages=c('pracma')))
   
+  if (.parallel){
+    stopCluster(cl)
+  }
   
   return(sdf)
 }

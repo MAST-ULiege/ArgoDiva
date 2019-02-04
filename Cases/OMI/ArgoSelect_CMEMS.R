@@ -16,12 +16,9 @@
 
 ArgoSelect_CMEMS <- function(selectCriterium, datasource="Coriolis"){
   with(selectCriterium,{
-    
     argodflist<-lapply(as.list(filenames),function(file){
-      
       #Opening the file in a open-only mode
       ncfile   <<- nc_open(paste0(dataDir,file), write = FALSE, verbose = FALSE, suppress_dimvals = FALSE)
-      
       print(file)
       
       #Dimensions
@@ -32,7 +29,6 @@ ArgoSelect_CMEMS <- function(selectCriterium, datasource="Coriolis"){
       } else if (datasource=="CMEMS") {
         juld     <- ncvar_get(ncfile,"TIME") 
       }
-      
       pres     <- ncvar_get(ncfile,"PRES")
       lon      <- ncvar_get(ncfile,"LONGITUDE")
       lat      <- ncvar_get(ncfile,"LATITUDE")
@@ -52,18 +48,16 @@ ArgoSelect_CMEMS <- function(selectCriterium, datasource="Coriolis"){
       
       dflist <-#try_default(
         lapply (varList, function (V){
-          print(V)
+#          print(V)
           vstringadj<-paste0(V,'_ADJUSTED')
           # vardf <- ExtractVar(V,FloatInfo)
-          
           # When ADJUSTED variable is available, it takes the place of the nominal variable without further notice
           vardf <- try_default(
             ExtractVar(vstringadj,FloatInfo),
             try_default(
               ExtractVar(V,FloatInfo),
               data.frame(value=NA,qc=NA,alevel=NA,depth=NA,aprofile=NA,variable=NA,juld=1000,lon=NA,lat=NA)),
-            quiet=TRUE)
-          
+            quiet=FALSE)
           vardf$variable<-V
           return(vardf)
         })#,
@@ -79,14 +73,12 @@ ArgoSelect_CMEMS <- function(selectCriterium, datasource="Coriolis"){
         id <- ncatt_get(ncfile,0, "platform_code")
         dftot$Platform <- id$value
       }
-      
-      
       dftot$day      <- month.day.year(dftot$juld,c(1,1,1950))$day
       dftot$month    <- month.day.year(dftot$juld,c(1,1,1950))$month
       dftot$year     <- month.day.year(dftot$juld,c(1,1,1950))$year
-      
       return(dftot)
     })
+    nc_close(ncfile)
     return (do.call(rbind,argodflist))
   })
 }
@@ -125,7 +117,6 @@ ExtractVar<-function(Var,FloatInfo){
     d$lon  <-lon[d$aprofile]
     d$lat  <-lat[d$aprofile]
   #  d$dir  <-dir[d$aprofile]
-    
     return(d=d)
   })
 }  
