@@ -1,27 +1,31 @@
 # Generation of the Black Sea Oxygen content files from Argo data for CMEMS OMI
 # A. Capet 02/07/2018 - acapet@uliege.be
 
+
+datacase <- "CMEMS_MONTHLY" #"CORIOLIS" #"CMEMS_HISTORY" #  
+
+########################
+# Function definitions #
+########################
 # Load package and function sources
 source("../../Utils/ArgoLoad.R")
 source('ParSetup.R')
+
 # Overwrites default ArgoSelect function
 source("ArgoSelect_CMEMS.R")
 
-datacase <- "CMEMS_MONTHLY" #"CORIOLIS" #"CMEMS_HISTORY" #  
+# To add new function, use :  
+source("ArgoVertFunctions_OMI.R")
+source("../../Utils/ArgoCompleteBIS.R")
+source("../../Utils/ArgoExtractForCastedDF.R")
+
+
 
 ################################
 # Criterium for Argo selection #
 ################################
 
 source(paste0( "OmiDataLoad_", datacase,".R" ) )
-
-########################
-# Function definitions #
-########################
-# To add new function, use :  
-source("ArgoVertFunctions_OMI.R")
-source("../../Utils/ArgoCompleteBIS.R")
-source("../../Utils/ArgoExtractForCastedDF.R")
 
 ########################
 # Complete (by level)  #
@@ -71,7 +75,7 @@ finaldffrop<-dcast(finaldf,qc+juld+lon+lat+Platform+day+month+year~variable, fun
 ######################
 
 # save(finaldffrop,file = 'Lastfinaldrop.Rdata') # load(file = 'Lastfinaldrop.Rdata')
-# save(finaldffrop,file = paste0('Lastfinaldrop',datacase,'2.Rdata')) # load(file = paste0('Lastfinaldrop',datacase,'.Rdata'))
+# save(finaldffrop,file = paste0('Lastfinaldrop',datacase,'2.Rdata')) # load(file = paste0('Lastfinaldrop',datacase,'2.Rdata'))
 source("NetcdfOutput_OMI_MultiPlatform.R")
 source("NetcdfOutput_OMI_MultiPlatformMonthly.R")
 
@@ -81,7 +85,6 @@ NetcdfOutput_OMI_MP(finaldffrop, 'R20')
 NetcdfOutput_OMI_MP(finaldffrop, 'VOC')
 
 # Procedure For OMI preparation stops here.
-
 break()
 
 #########
